@@ -1,0 +1,255 @@
+<?php
+/**
+ * @file Contains the
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function forward_revisions_menu() {
+  $items = [];
+
+  $items['node/%node/revisions/%/activate'] = [
+    'title' => 'Make a revision the active revision',
+    'load arguments' => [3],
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => ['forward_revisions_activate_confirm', 1],
+    'access callback' => '_node_revision_access',
+    'access arguments' => [1, 'update'],
+  ];
+
+  $items['node/%node/revisions/%/publish'] = [
+    'title' => 'Publish a revision',
+    'load arguments' => [3],
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => ['forward_revisions_publish_confirm', 1],
+    'access callback' => '_node_revision_access',
+    'access arguments' => [1, 'update'],
+  ];
+
+  $items['node/%node/revisions/%/new_draft'] = array(
+    'title' => 'Create new draft',
+    'load arguments' => [3],
+    'page callback' => 'forward_revisions_new_draft',
+    'page arguments' => array(1),
+    'access callback' => 'node_access',
+    'access arguments' => array('update', 1),
+    'weight' => 0,
+    'type' => MENU_LOCAL_TASK,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+  );
+
+  $items['node/%node/revisions/%/edit_draft'] = array(
+    'title' => 'Edit draft',
+    'load arguments' => [3],
+    'page callback' => 'forward_revisions_edit_draft',
+    'page arguments' => array(1),
+    'access callback' => 'node_access',
+    'access arguments' => array('update', 1),
+    'weight' => 0,
+    'type' => MENU_LOCAL_TASK,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_menu_alter().
+ */
+function forward_revisions_menu_alter(&$items) {
+  // Override node/%node/revisions.
+  $items['node/%node/revisions']['page callback'] = 'forward_revisions_node_revisions_overview';
+}
+
+/**
+ * Implements hook_admin_paths().
+ */
+function forward_revisions_admin_paths() {
+  if (config_get('system.core', 'node_admin_theme')) {
+    $paths = array(
+      'node/*/revisions/*/activate' => TRUE,
+      'node/*/revisions/*/publish' => TRUE,
+      'node/*/revisions/*/new_draft' => TRUE,
+      'node/*/revisions/*/edit_draft' => TRUE,
+    );
+    return $paths;
+  }
+  else {
+    return array();
+  }
+}
+
+/**
+ * Provides a replacement for the node revisions page.
+ */
+function forward_revisions_node_revisions_overview(Node $node) {
+  module_load_include('inc', 'node', 'node.pages');
+  $build = node_revision_overview($node);
+
+  // Add the Published column header.
+  array_splice($build['node_revisions_table']['#header'], 1, 0, [t('Status')]);
+
+  $revision_list = node_revision_list($node);
+
+  $key = 0;
+  foreach ($revision_list as $vid => $revision) {
+
+    $node_revision = entity_plus_revision_load('node', $vid);
+    // Add the Published column.
+    array_splice($build['node_revisions_table']['#rows'][$key], 1, 0, [($node_revision->status ? t('Approved') : t('Draft'))]);
+
+    // Add activate action.
+    if ($vid != $node->vid) {
+      // Remove the Revert option.
+      unset($build['node_revisions_table']['#rows'][$key][2]['data']['#links']['revert']);
+
+      // Add the add/edit/publish options.
+      if ($node_revision->status == NODE_PUBLISHED) {
+        array_splice($build['node_revisions_table']['#rows'][$key][2]['data']['#links'], 0, 0, [
+          'new_draft' => [
+            'title' => t('New Draft'),
+            'href' => 'node/' . $node->nid . '/revisions/' . $vid . '/new_draft',
+          ],
+          'activate' => [
+            'title' => t('Publish Revision'),
+            'href' => 'node/' . $node->nid . '/revisions/' . $vid . '/activate',
+          ],
+        ]);
+      }
+      else {
+        array_splice($build['node_revisions_table']['#rows'][$key][2]['data']['#links'], 0, 0, [
+          'edit_draft' => [
+            'title' => t('Edit Draft'),
+            'href' => 'node/' . $node->nid . '/revisions/' . $vid . '/edit_draft',
+          ],
+          'publish_draft' => [
+            'title' => t('Publish Draft'),
+            'href' => 'node/' . $node->nid . '/revisions/' . $vid . '/publish',
+          ],
+        ]);
+      }
+    }
+
+    $key++;
+  }
+
+  return $build;
+}
+
+/**
+ * The confirmation form for activating a revision.
+ */
+function forward_revisions_activate_confirm($form, $form_state, $node_revision) {
+  $form['#node_revision'] = $node_revision;
+  return confirm_form($form, t('Are you sure you want to publish the revision from %revision-date?', array(
+    '%revision-date' => format_date($node_revision->revision_timestamp),
+  )), 'node/' . $node_revision->nid . '/revisions', '', t('Publish'), t('Cancel'));
+}
+
+/**
+ * Form submission handler for forward_revisions_activate_confirm().
+ */
+function forward_revisions_activate_confirm_submit($form, &$form_state) {
+  $node_revision = $form['#node_revision'];
+
+  $node_revision->setIsActiveRevision();
+  $node_revision->save();
+
+  backdrop_set_message(t('@type %title has been set as the active revision.', array(
+    '@type' => node_type_get_name($node_revision),
+    '%title' => $node_revision->title,
+  )));
+  $form_state['redirect'] = 'node/' . $node_revision->nid . '/revisions';
+}
+
+/**
+ * The confirmation form for publishing a draft revision.
+ */
+function forward_revisions_publish_confirm($form, $form_state, $node_revision) {
+  $form['#node_revision'] = $node_revision;
+  return confirm_form($form, t('Are you sure you want to publish the revision from %revision-date?', array(
+    '%revision-date' => format_date($node_revision->revision_timestamp),
+  )), 'node/' . $node_revision->nid . '/revisions', '', t('Publish'), t('Cancel'));
+}
+
+/**
+ * Form submission handler for forward_revisions_publish_confirm().
+ */
+function forward_revisions_publish_confirm_submit($form, &$form_state) {
+  $node_revision = $form['#node_revision'];
+
+  $node_revision->status = NODE_PUBLISHED;
+  $node_revision->setIsActiveRevision();
+  $node_revision->save();
+
+  backdrop_set_message(t('@type %title has been set as the active revision.', array(
+    '@type' => node_type_get_name($node_revision),
+    '%title' => $node_revision->title,
+  )));
+  $form_state['redirect'] = 'node/' . $node_revision->nid . '/revisions';
+}
+
+/**
+ * Loads the node form for creating a new draft from a revision.
+ */
+function forward_revisions_new_draft(Node $node) {
+  module_load_include('inc', 'node', 'node.pages');
+
+  $type_name = node_type_get_name($node);
+  backdrop_set_title(t('New draft of @type %title', array(
+    '@type' => $type_name,
+    '%title' => $node->title,
+  )), PASS_THROUGH);
+
+  $form = backdrop_get_form($node->type . '_node_form', $node);
+  return $form;
+}
+
+/**
+ * Submit handler for the new draft form.
+ */
+function forward_revisions_new_draft_submit($form, &$form_state) {}
+
+/**
+ * Loads the node form for editing an existing revision.
+ */
+function forward_revisions_edit_draft(Node $node) {
+  module_load_include('inc', 'node', 'node.pages');
+
+  $type_name = node_type_get_name($node);
+  backdrop_set_title(t('Edit draft of @type %title', array(
+    '@type' => $type_name,
+    '%title' => $node->title,
+  )), PASS_THROUGH);
+
+  $form = backdrop_get_form($node->type . '_node_form', $node);
+  return $form;
+}
+
+/**
+ * Submit handler for the edit draft form.
+ */
+function forward_revisions_edit_draft_submit($form, &$form_state) {}
+
+/**
+ * Implements hook_form_alter().
+ */
+function forward_revisions_form_alter(&$form, &$form_state, $form_id) {
+//  dpm($form);
+//  dpm($form_state);
+//  dpm($form_id);
+
+  $node_form_string = '_node_form';
+  if (substr_compare($form_id, $node_form_string, -strlen($node_form_string)) === 0) {
+    if (!empty($form['actions']['submit']['#submit'])) {
+      array_unshift($form['actions']['submit']['#submit'], 'forward_revisions_new_draft_submit');
+    }
+//    $form['actions']['new_draft'] = [
+//      '#type' => 'submit',
+//      '#access' => TRUE,
+//      '#value' => t('New draft'),
+//      '#weight' => 4,
+//      '#submit' => ['forward_revisions_new_draft_submit'],
+//    ];
+  }
+}
