@@ -9,7 +9,7 @@ Requirements
 
 This module requires that the following modules are also enabled:
 
-- [Emtity Plus](https://github.com/backdrop-contrib/entity_plus)
+- [Entity Plus](https://github.com/backdrop-contrib/entity_plus)
 
 
 Installation
