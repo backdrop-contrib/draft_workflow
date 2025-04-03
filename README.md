@@ -3,15 +3,6 @@ Forward Revisions
 
 This module is a work in progress to extend the core revision handling.
 
-
-Requirements
-------------
-
-This module requires that the following modules are also enabled:
-
-- [Emtity Plus](https://github.com/backdrop-contrib/entity_plus)
-
-
 Installation
 ------------
 

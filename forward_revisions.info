@@ -4,4 +4,3 @@ backdrop = 1.x
 type = module
 
 dependencies[] = node
-dependencies[] = entity_plus
