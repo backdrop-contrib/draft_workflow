@@ -280,24 +280,26 @@ function forward_revisions_edit_revision(Node $node) {
  * Implements hook_form_alter().
  */
 function forward_revisions_form_alter(&$form, &$form_state, $form_id) {
-  $args = arg();
-
   $node_form_string = '_node_form';
   if (substr_compare($form_id, $node_form_string, -strlen($node_form_string)) === 0) {
+    $node = $form['#node'];
 
     $form['options']['#collapsed'] = TRUE;
     $form['revision_information']['#collapsed'] = FALSE;
 
+    $form['options']['help_text'] = [
+      '#type' => 'markup',
+      '#weight' => -1,
+      '#markup' => '<strong>' . t('The publishing options will affect all revisions of this @node_type.', [
+          '@node_type' => node_type_get_name($node),
+        ]) . '</strong>',
+    ];
+
+    $args = arg();
     if (!empty($args[4])) {
       if ($args[4] == 'new_revision') {
         $form['revision_information']['revision']['#type'] = 'hidden';
         $form['revision_information']['revision']['#value'] = 1;
-
-        $form['options']['help_text'] = [
-          '#type' => 'markup',
-          '#weight' => -1,
-          '#markup' => '<strong>' . t('The publishing options will affect all versions of the node.') . '</strong>',
-        ];
       }
       else if ($args[4] == 'edit_revision') {
         $form['revision_information']['revision']['#type'] = 'hidden';
@@ -333,15 +335,15 @@ function forward_revisions_edit_revision_submit($form, &$form_state) {
 function forward_revisions_node_submit(Node $node, $form, &$form_state) {
   $args = arg();
   if (!empty($args[4])) {
-    if ($args[4] == 'new_revision' || $args[4] == 'edit_revision') {
-      // Update all the revisions to match the currently saved node.
-      db_update('node_revision')
-        ->fields(['status' => $node->status])
-        ->condition('nid', $node->nid)
-        ->execute();
-    }
     if ($args[4] == 'new_revision') {
       $node->is_active_revision = FALSE;
     }
   }
+
+  // Update all the revisions to match the currently saved node.
+  db_update('node_revision')
+    ->fields(['status' => $node->status])
+    ->condition('nid', $node->nid)
+    ->execute();
+
 }
