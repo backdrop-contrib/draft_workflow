@@ -1,7 +1,23 @@
 Forward Revisions
 ========
 
-This module is a work in progress to extend the core revision handling.
+This module is a work in progress that modifies the core revision handling to include
+forward revisions, or revisions to the currently published version that are not yet
+published themselves.
+
+This is a workflow management module that allows site editors to make draft edits
+to a published node.
+
+![image](https://github.com/user-attachments/assets/15faed0d-d8cd-4e0b-8404-444a61d773ed)
+
+1) This "Current" revision is the version that site visitors will see when they visit your
+website.
+
+2) This version contains changes to the "Current" version that are not yet visible to
+site visitors. When this revision is ready, you can make it or any other revision your
+"Current" revision.
+
+![image](https://github.com/user-attachments/assets/a832d7fd-0ac2-49b5-aaef-20bf52547524)
 
 Installation
 ------------
