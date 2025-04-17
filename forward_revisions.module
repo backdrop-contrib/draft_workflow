@@ -165,7 +165,7 @@ function forward_revisions_node_revisions_overview(Node $node) {
     '#weight' => -1,
     'new_revision' => [
       '#type' => 'link',
-      '#title' => 'Create new revision',
+      '#title' => 'Copy current revision',
       '#href' => 'node/' . $node->nid . '/revisions/' . $node->vid . '/new_revision',
       '#attributes' => array('class' => 'button'),
     ],
@@ -207,16 +207,16 @@ function forward_revisions_node_revisions_overview(Node $node) {
       unset($build['node_revisions_table']['#rows'][$key][1]['data']['#links']['revert']);
 
       array_splice($build['node_revisions_table']['#rows'][$key][1]['data']['#links'], 0, 0, [
-        'edit_revision' => [
-          'title' => t('Edit Revision'),
-          'href' => 'node/' . $node->nid . '/revisions/' . $vid . '/edit_revision',
-        ],
         'activate' => [
           'title' => t('Make current revision'),
           'href' => 'node/' . $node->nid . '/revisions/' . $vid . '/activate',
         ],
+        'edit_revision' => [
+          'title' => t('Edit this revision'),
+          'href' => 'node/' . $node->nid . '/revisions/' . $vid . '/edit_revision',
+        ],
         'new_revision' => [
-          'title' => t('Create New Revision'),
+          'title' => t('Copy this revision'),
           'href' => 'node/' . $node->nid . '/revisions/' . $vid . '/new_revision',
         ],
       ]);
@@ -246,7 +246,7 @@ function forward_revisions_activate_confirm_submit($form, &$form_state) {
   $node_revision->setIsActiveRevision();
   $node_revision->save();
 
-  backdrop_set_message(t('@type %title has been set as the active revision.', array(
+  backdrop_set_message(t('@type %title has been set as the current revision.', array(
     '@type' => node_type_get_name($node_revision),
     '%title' => $node_revision->title,
   )));
