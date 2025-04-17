@@ -106,7 +106,7 @@ function forward_revisions_node_revisions_overview(Node $node) {
     ]), 'info');
     $build['actions']['unpublish'] = [
       '#type' => 'link',
-      '#title' => 'Unpublish node',
+      '#title' => t('Unpublish @node_type', ['@node_type' => $node_type_name]),
       '#href' => 'node/' . $node->nid . '/unpublish',
       '#attributes' => array('class' => 'button'),
     ];
@@ -117,7 +117,7 @@ function forward_revisions_node_revisions_overview(Node $node) {
     ]), 'warning');
     $build['actions']['publish'] = [
       '#type' => 'link',
-      '#title' => 'publish node',
+      '#title' => t('Publish @node_type', ['@node_type' => $node_type_name]),
       '#href' => 'node/' . $node->nid . '/publish',
       '#attributes' => array('class' => 'button'),
     ];
