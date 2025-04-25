@@ -1,6 +1,0 @@
-name = Forward Revisions
-description = "Provides a UI for managing revisions that expands on the core revision handling."
-backdrop = 1.x
-type = module
-
-dependencies[] = node
