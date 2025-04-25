@@ -1,0 +1,6 @@
+name = Draft Workflow
+description = "Provides a UI for managing drafts and workflow for node revisions, expanding on the core revision handling."
+backdrop = 1.x
+type = module
+
+dependencies[] = node

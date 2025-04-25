@@ -1,8 +1,8 @@
-Forward Revisions
+Draft Workflow
 ========
 
 This module is a work in progress that modifies the core revision handling to include
-forward revisions, or revisions to the currently published version that are not yet
+draft workflow, or revisions to the currently published version that are not yet
 published themselves.
 
 This is a workflow management module that allows site editors to make draft edits
@@ -30,7 +30,7 @@ Issues
 ------
 
 Bugs and Feature Requests should be reported in the Issue Queue:
-https://github.com/backdrop-contrib/forward_revisions/issues.
+https://github.com/backdrop-contrib/draft_workflow/issues.
 
 
 Current Maintainers

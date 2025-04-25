@@ -6,14 +6,14 @@
 /**
  * Implements hook_menu().
  */
-function forward_revisions_menu() {
+function draft_workflow_menu() {
   $items = [];
 
   $items['node/%node/revisions/%/activate'] = [
     'title' => 'Make a revision the current revision',
     'load arguments' => [3],
     'page callback' => 'backdrop_get_form',
-    'page arguments' => ['forward_revisions_activate_confirm', 1],
+    'page arguments' => ['draft_workflow_activate_confirm', 1],
     'access callback' => '_node_revision_access',
     'access arguments' => [1, 'update'],
   ];
@@ -21,7 +21,7 @@ function forward_revisions_menu() {
     'title' => 'Publish the node',
 //    'load arguments' => [1],
     'page callback' => 'backdrop_get_form',
-    'page arguments' => ['forward_revisions_publish_confirm', 1],
+    'page arguments' => ['draft_workflow_publish_confirm', 1],
     'access callback' => 'node_access',
     'access arguments' => ['update', 1],
   ];
@@ -29,14 +29,14 @@ function forward_revisions_menu() {
     'title' => 'Unpublish the node',
 //    'load arguments' => [1],
     'page callback' => 'backdrop_get_form',
-    'page arguments' => ['forward_revisions_unpublish_confirm', 1],
+    'page arguments' => ['draft_workflow_unpublish_confirm', 1],
     'access callback' => 'node_access',
     'access arguments' => ['update', 1],
   ];
   $items['node/%node/revisions/%/new_revision'] = array(
     'title' => 'Create new revision',
     'load arguments' => [3],
-    'page callback' => 'forward_revisions_new_revision',
+    'page callback' => 'draft_workflow_new_revision',
     'page arguments' => array(1),
     'access callback' => 'node_access',
     'access arguments' => array('update', 1),
@@ -45,7 +45,7 @@ function forward_revisions_menu() {
   $items['node/%node/revisions/%/edit_revision'] = array(
     'title' => 'Edit revision',
     'load arguments' => [3],
-    'page callback' => 'forward_revisions_edit_revision',
+    'page callback' => 'draft_workflow_edit_revision',
     'page arguments' => array(1),
     'access callback' => 'node_access',
     'access arguments' => array('update', 1),
@@ -57,16 +57,16 @@ function forward_revisions_menu() {
 /**
  * Implements hook_menu_alter().
  */
-function forward_revisions_menu_alter(&$items) {
+function draft_workflow_menu_alter(&$items) {
   // Override node/%node/revisions.
-  $items['node/%node/revisions']['page callback'] = 'forward_revisions_node_revisions_overview';
-  $items['node/%node/revisions']['access callback'] = 'forward_revisions_node_revisions_access';
+  $items['node/%node/revisions']['page callback'] = 'draft_workflow_node_revisions_overview';
+  $items['node/%node/revisions']['access callback'] = 'draft_workflow_node_revisions_access';
 }
 
 /**
  * Implements hook_admin_paths().
  */
-function forward_revisions_admin_paths() {
+function draft_workflow_admin_paths() {
   if (config_get('system.core', 'node_admin_theme')) {
     $paths = array(
       'node/*/revisions/*/activate' => TRUE,
@@ -101,7 +101,7 @@ function forward_revisions_admin_paths() {
  *
  * @see node_menu()
  */
-function forward_revisions_node_revisions_access(Node $node, $op = 'view', $account = NULL) {
+function draft_workflow_node_revisions_access(Node $node, $op = 'view', $account = NULL) {
   $access = &backdrop_static(__FUNCTION__, array());
 
   $map = array(
@@ -156,7 +156,7 @@ function forward_revisions_node_revisions_access(Node $node, $op = 'view', $acco
 /**
  * Provides a replacement for the node revisions page.
  */
-function forward_revisions_node_revisions_overview(Node $node) {
+function draft_workflow_node_revisions_overview(Node $node) {
   module_load_include('inc', 'node', 'node.pages');
   $build = node_revision_overview($node);
 
@@ -230,7 +230,7 @@ function forward_revisions_node_revisions_overview(Node $node) {
 /**
  * The confirmation form for activating a revision.
  */
-function forward_revisions_activate_confirm($form, $form_state, $node_revision) {
+function draft_workflow_activate_confirm($form, $form_state, $node_revision) {
   $form['#node_revision'] = $node_revision;
   return confirm_form($form, t('Are you sure you want to make the revision from %revision-date the current revision?', array(
     '%revision-date' => format_date($node_revision->revision_timestamp),
@@ -238,9 +238,9 @@ function forward_revisions_activate_confirm($form, $form_state, $node_revision) 
 }
 
 /**
- * Form submission handler for forward_revisions_activate_confirm().
+ * Form submission handler for draft_workflow_activate_confirm().
  */
-function forward_revisions_activate_confirm_submit($form, &$form_state) {
+function draft_workflow_activate_confirm_submit($form, &$form_state) {
   $node_revision = $form['#node_revision'];
 
   $node_revision->setIsActiveRevision();
@@ -256,7 +256,7 @@ function forward_revisions_activate_confirm_submit($form, &$form_state) {
 /**
  * The confirmation form for publishing a draft revision.
  */
-function forward_revisions_publish_confirm($form, $form_state, $node) {
+function draft_workflow_publish_confirm($form, $form_state, $node) {
   $form['#node'] = $node;
   return confirm_form($form, t('Are you sure you want to publish %node_title?', array(
     '%node_title' => $node->title,
@@ -264,9 +264,9 @@ function forward_revisions_publish_confirm($form, $form_state, $node) {
 }
 
 /**
- * Form submission handler for forward_revisions_publish_confirm().
+ * Form submission handler for draft_workflow_publish_confirm().
  */
-function forward_revisions_publish_confirm_submit($form, &$form_state) {
+function draft_workflow_publish_confirm_submit($form, &$form_state) {
   $node = $form['#node'];
 
   $node->status = NODE_PUBLISHED;
@@ -287,7 +287,7 @@ function forward_revisions_publish_confirm_submit($form, &$form_state) {
 /**
  * The confirmation form for publishing a draft revision.
  */
-function forward_revisions_unpublish_confirm($form, $form_state, $node) {
+function draft_workflow_unpublish_confirm($form, $form_state, $node) {
   $form['#node'] = $node;
   return confirm_form($form, t('Are you sure you want to unpublish %node_title?', array(
     '%node_title' => $node->title,
@@ -295,9 +295,9 @@ function forward_revisions_unpublish_confirm($form, $form_state, $node) {
 }
 
 /**
- * Form submission handler for forward_revisions_publish_confirm().
+ * Form submission handler for draft_workflow_publish_confirm().
  */
-function forward_revisions_unpublish_confirm_submit($form, &$form_state) {
+function draft_workflow_unpublish_confirm_submit($form, &$form_state) {
   $node = $form['#node'];
 
   $node->status = NODE_NOT_PUBLISHED;
@@ -318,7 +318,7 @@ function forward_revisions_unpublish_confirm_submit($form, &$form_state) {
 /**
  * Loads the node form for creating a new revision.
  */
-function forward_revisions_new_revision(Node $node) {
+function draft_workflow_new_revision(Node $node) {
   module_load_include('inc', 'node', 'node.pages');
 
   $type_name = node_type_get_name($node);
@@ -335,7 +335,7 @@ function forward_revisions_new_revision(Node $node) {
 /**
  * Loads the node form for editing an existing revision.
  */
-function forward_revisions_edit_revision(Node $node) {
+function draft_workflow_edit_revision(Node $node) {
   module_load_include('inc', 'node', 'node.pages');
 
   $type_name = node_type_get_name($node);
@@ -351,7 +351,7 @@ function forward_revisions_edit_revision(Node $node) {
 /**
  * Implements hook_form_alter().
  */
-function forward_revisions_form_alter(&$form, &$form_state, $form_id) {
+function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
   $node_form_string = '_node_form';
   if (substr_compare($form_id, $node_form_string, -strlen($node_form_string)) === 0) {
     $node = $form['#node'];
@@ -390,21 +390,21 @@ function forward_revisions_form_alter(&$form, &$form_state, $form_id) {
 /**
  * Submit handler for the new revision form.
  */
-function forward_revisions_new_revision_submit($form, &$form_state) {
+function draft_workflow_new_revision_submit($form, &$form_state) {
   $form_state['values']['revision'] = 1;
 }
 
 /**
  * Submit handler for the edit revision form.
  */
-function forward_revisions_edit_revision_submit($form, &$form_state) {
+function draft_workflow_edit_revision_submit($form, &$form_state) {
   $form_state['values']['revision'] = 0;
 }
 
 /**
  * Implements hook_node_submit().
  */
-function forward_revisions_node_submit(Node $node, $form, &$form_state) {
+function draft_workflow_node_submit(Node $node, $form, &$form_state) {
   $args = arg();
   if (!empty($args[4])) {
     if ($args[4] == 'new_revision') {
