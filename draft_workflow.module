@@ -58,9 +58,16 @@ function draft_workflow_menu() {
  * Implements hook_menu_alter().
  */
 function draft_workflow_menu_alter(&$items) {
-  // Override node/%node/revisions.
+  // Always override node/%node/revisions to add our functionality.
   $items['node/%node/revisions']['page callback'] = 'draft_workflow_node_revisions_overview';
   $items['node/%node/revisions']['access callback'] = 'draft_workflow_node_revisions_access';
+  
+  // Let Diff handle the Compare tab - it already registers node/%node/compare.
+  // We just need to make sure it uses our access callback.
+  if (isset($items['node/%node/compare'])) {
+    $items['node/%node/compare']['access callback'] = 'draft_workflow_node_revisions_access';
+    $items['node/%node/compare']['access arguments'] = [1];
+  }
 }
 
 /**
@@ -385,6 +392,7 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       }
     }
   }
+
 }
 
 /**
