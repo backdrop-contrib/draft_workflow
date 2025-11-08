@@ -34,6 +34,7 @@ Current Maintainers
 -------------------
 
 - [Joseph Flatt](https://github.com/hosef)
+- Tim Erickson ([@stpaultim](https://github.com/stpaultim)).
 
 
 License
