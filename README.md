@@ -32,8 +32,35 @@ When editing or copying a non-current revision, the publishing options are hidde
 avoid confusion. Instead, a single "Make this the current revision" checkbox is
 available in the Revision information section.
 
+Pending Review view
+-------------------
+
+The module provides a **Pending Review** view at `admin/content/drafts` (also
+available as a tab alongside the main Content list). It shows all nodes that have
+draft revisions newer than the currently published revision, along with the latest
+draft note left by an editor.
+
+A **Pending Review block** is also available. Add it to a dashboard or admin layout
+to show a quick count of content awaiting review, with a link to the full list.
+
 Configuration
 -------------
+
+### Permissions
+
+The module defines four permissions that allow you to separate editorial roles:
+
+| Permission | Description |
+|---|---|
+| **Create draft revisions** | Create new draft revisions and edit existing ones. |
+| **Activate draft revisions** | Make a draft revision the current (public) revision. |
+| **Publish and unpublish content** | Use the publish and unpublish workflow actions. |
+| **View pending draft revisions** | Access the Pending Review view and dashboard block. |
+
+A typical two-role setup might look like:
+
+- **Editor**: Grant _Create draft revisions_ and _View pending draft revisions_.
+- **Publisher**: Grant all four permissions.
 
 ### Make revision information more prominent
 
@@ -49,6 +76,16 @@ this section always visible by enabling a per-content-type setting:
 When enabled, the revision information fieldset will appear above the sidebar tabs
 on all editing forms for that content type, making it immediately visible without
 requiring an extra click.
+
+Related Modules
+---------------
+
+### Diff
+
+Install the [Diff module](https://backdropcms.org/project/diff) to enable
+side-by-side comparisons between revisions. When Diff is active, a **Diff**
+link appears in the revisions table, letting editors and reviewers quickly see
+exactly what changed between a draft and the current live version.
 
 Installation
 ------------

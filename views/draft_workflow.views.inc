@@ -20,5 +20,14 @@ function draft_workflow_views_data() {
     ),
   );
 
+  $data['node']['draft_workflow_latest_revision_log'] = array(
+    'title' => t('Latest draft revision log'),
+    'help' => t('The log message from the most recent draft revision (newer than the current active revision).'),
+    'field' => array(
+      'handler' => 'draft_workflow_handler_field_latest_revision_log',
+      'label' => t('Latest draft note'),
+    ),
+  );
+
   return $data;
 }
