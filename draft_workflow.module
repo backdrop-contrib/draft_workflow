@@ -201,6 +201,15 @@ function draft_workflow_node_revisions_overview(Node $node) {
   foreach ($revision_list as $vid => $revision) {
     $node_revision = node_load($node->nid, $vid);
 
+    // Add "View - " to the existing revision date link text.
+    $date_str = format_date($revision->timestamp, 'short');
+    if ($revision->current_vid > 0) {
+      $build['node_revisions_table']['#rows'][$key][0]['data'] = str_replace(">$date_str<", ">View - $date_str<", $build['node_revisions_table']['#rows'][$key][0]['data']);
+    }
+    else {
+      $build['node_revisions_table']['#rows'][$key][0] = str_replace(">$date_str<", ">View - $date_str<", $build['node_revisions_table']['#rows'][$key][0]);
+    }
+
     // Edit the action links.
     if ($vid != $node->vid) {
       // Remove the Revert option.
