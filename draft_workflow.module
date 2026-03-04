@@ -468,6 +468,25 @@ function draft_workflow_node_submit(Node $node, $form, &$form_state) {
 }
 
 /**
+ * Implements hook_views_api().
+ */
+function draft_workflow_views_api() {
+  return array(
+    'api' => '3.0',
+    'path' => backdrop_get_path('module', 'draft_workflow') . '/views',
+  );
+}
+
+/**
+ * Implements hook_autoload_info().
+ */
+function draft_workflow_autoload_info() {
+  return array(
+    'draft_workflow_handler_filter_forward_revisions' => 'views/draft_workflow_handler_filter_forward_revisions.inc',
+  );
+}
+
+/**
  * Implements hook_node_view().
  */
 function draft_workflow_node_view(Node $node, $view_mode, $langcode) {
