@@ -358,6 +358,29 @@ function draft_workflow_edit_revision(Node $node) {
 }
 
 /**
+ * Implements hook_form_node_type_form_alter().
+ */
+function draft_workflow_form_node_type_form_alter(&$form, &$form_state) {
+  $node_type = $form['#node_type'];
+  $form['revision']['draft_workflow_prominent_revisions'] = [
+    '#type' => 'checkbox',
+    '#title' => t('Display revision information prominently'),
+    '#description' => t('Show revision information above the sidebar tabs, making it always visible when editing content of this type.'),
+    '#default_value' => config_get('node.type.' . $node_type->type, 'settings.draft_workflow_prominent_revisions'),
+  ];
+  $form['#submit'][] = 'draft_workflow_node_type_form_submit';
+}
+
+/**
+ * Submit handler for the node type form.
+ */
+function draft_workflow_node_type_form_submit($form, &$form_state) {
+  $config = config('node.type.' . $form_state['values']['type']);
+  $config->set('settings.draft_workflow_prominent_revisions', (bool) $form_state['values']['draft_workflow_prominent_revisions']);
+  $config->save();
+}
+
+/**
  * Implements hook_form_alter().
  */
 function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
@@ -368,30 +391,42 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
     $form['options']['#collapsed'] = TRUE;
     $form['revision_information']['#collapsed'] = FALSE;
 
-    $form['options']['help_text'] = [
-      '#type' => 'markup',
-      '#weight' => -1,
-      '#markup' => '<strong>' . t('The publishing options will affect all revisions of this @node_type.', [
-          '@node_type' => node_type_get_name($node),
-        ]) . '</strong>',
-    ];
+    // If configured for this content type, pull revision information out of
+    // the vertical tabs so it renders as a visible fieldset above them.
+    if (config_get('node.type.' . $node->type, 'settings.draft_workflow_prominent_revisions')) {
+      unset($form['revision_information']['#group']);
+      $form['revision_information']['#weight'] = 98;
+    }
 
     $args = arg();
-    if (!empty($args[4])) {
+    if (!empty($args[4]) && in_array($args[4], ['new_revision', 'edit_revision'])) {
+      // Hide publishing options for non-current revisions.
+      $form['options']['#access'] = FALSE;
+
+      // Add "Make current revision" checkbox to revision information.
+      $form['revision_information']['make_current'] = [
+        '#type' => 'checkbox',
+        '#title' => t('Make this the current revision'),
+        '#default_value' => 0,
+      ];
+
       if ($args[4] == 'new_revision') {
         $form['revision_information']['revision']['#type'] = 'hidden';
         $form['revision_information']['revision']['#value'] = 1;
       }
-      else if ($args[4] == 'edit_revision') {
+      else {
         $form['revision_information']['revision']['#type'] = 'hidden';
         $form['revision_information']['revision']['#value'] = 0;
-
-        $form['options']['help_text'] = [
-          '#type' => 'markup',
-          '#weight' => -1,
-          '#markup' => '<strong>' . t('The publishing options will affect all versions of the node.') . '</strong>',
-        ];
       }
+    }
+    else {
+      $form['options']['help_text'] = [
+        '#type' => 'markup',
+        '#weight' => -1,
+        '#markup' => '<strong>' . t('The publishing options will affect all revisions of this @node_type.', [
+            '@node_type' => node_type_get_name($node),
+          ]) . '</strong>',
+      ];
     }
   }
 }
@@ -417,7 +452,10 @@ function draft_workflow_node_submit(Node $node, $form, &$form_state) {
   $args = arg();
   if (!empty($args[4])) {
     if ($args[4] == 'new_revision') {
-      $node->is_active_revision = FALSE;
+      $node->is_active_revision = !empty($form_state['values']['make_current']);
+    }
+    elseif ($args[4] == 'edit_revision' && !empty($form_state['values']['make_current'])) {
+      $node->is_active_revision = TRUE;
     }
   }
 
@@ -427,4 +465,17 @@ function draft_workflow_node_submit(Node $node, $form, &$form_state) {
     ->condition('nid', $node->nid)
     ->execute();
 
+}
+
+/**
+ * Implements hook_node_view().
+ */
+function draft_workflow_node_view(Node $node, $view_mode, $langcode) {
+  if ($view_mode == 'full' && !$node->isActiveRevision()) {
+    $message = t('You are viewing a version of this content that is not the current (public) revision.');
+    if (node_access('update', $node)) {
+      $message .= ' ' . l(t('Edit this revision.'), 'node/' . $node->nid . '/revisions/' . $node->vid . '/edit_revision');
+    }
+    backdrop_set_message($message, 'warning');
+  }
 }
