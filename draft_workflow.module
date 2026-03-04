@@ -244,7 +244,9 @@ function theme_draft_workflow_settings_form($variables) {
     $perm_rows[] = $row;
   }
 
-  $output = '<h2>' . t('Permissions') . '</h2>';
+  $output = '<p>' . t('When enabled for a content type, this module lets you create draft revisions ahead of the current published version, allowing you to have draft versions ready for review before making them public. The current revision is what the public will see if the node is published — any revision can be made current at any time.') . '</p>';
+
+  $output .= '<h2>' . t('Permissions') . '</h2>';
   $output .= '<p>' . t('Configure which roles have access to draft workflow actions. These permissions are also available on the main <a href="!url">Permissions</a> page.', array(
     '!url' => url('admin/config/people/permissions'),
   )) . '</p>';
@@ -680,6 +682,17 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       else {
         $form['revision_information']['revision']['#type'] = 'hidden';
         $form['revision_information']['revision']['#value'] = 0;
+
+        // node_object_prepare() (called inside node_form()) resets $node->log
+        // to '' before our hook runs, so we cannot rely on $node->log here.
+        // Query the revision's log message directly from the database instead.
+        // Also remove the #states that hides this field when the revision
+        // checkbox is unchecked, since we have hidden that checkbox.
+        if (isset($form['revision_information']['log'])) {
+          unset($form['revision_information']['log']['#states']);
+          $log = db_query('SELECT log FROM {node_revision} WHERE vid = :vid', array(':vid' => $node->vid))->fetchField();
+          $form['revision_information']['log']['#default_value'] = $log ?: '';
+        }
       }
     }
     else {
