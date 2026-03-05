@@ -106,9 +106,25 @@ function draft_workflow_revision_edit_access(Node $node) {
 
 /**
  * Access callback for activating a draft revision.
+ *
+ * If the node is currently published, activating a revision changes what is
+ * publicly visible, so the publish permission is also required.
  */
 function draft_workflow_activate_access(Node $node) {
-  return _draft_workflow_type_enabled($node->type) && (user_access('administer nodes') || (node_access('update', $node) && user_access('activate draft revisions')));
+  if (!_draft_workflow_type_enabled($node->type)) {
+    return FALSE;
+  }
+  if (user_access('administer nodes')) {
+    return TRUE;
+  }
+  if (!node_access('update', $node) || !user_access('activate draft revisions')) {
+    return FALSE;
+  }
+  // Activating a revision on a published node is a publish action.
+  if ($node->status == NODE_PUBLISHED && !user_access('publish draft workflow content')) {
+    return FALSE;
+  }
+  return TRUE;
 }
 
 /**
@@ -288,12 +304,38 @@ function theme_draft_workflow_settings_form($variables) {
 }
 
 /**
+ * Access callback for the node edit page.
+ *
+ * Wraps core node edit access. When the draft workflow is enabled for a content
+ * type, editing the currently published node requires publish permission —
+ * otherwise editors would inadvertently publish changes by saving the form.
+ * Editors without publish permission should instead create or edit a draft
+ * revision via the revisions tab.
+ */
+function draft_workflow_node_edit_access(Node $node) {
+  if (!node_access('update', $node)) {
+    return FALSE;
+  }
+  if (_draft_workflow_type_enabled($node->type) && $node->status == NODE_PUBLISHED) {
+    return user_access('administer nodes') || user_access('publish draft workflow content');
+  }
+  return TRUE;
+}
+
+/**
  * Implements hook_menu_alter().
  */
 function draft_workflow_menu_alter(&$items) {
   // Override node/%node/revisions.
   $items['node/%node/revisions']['page callback'] = 'draft_workflow_node_revisions_overview';
   $items['node/%node/revisions']['access callback'] = 'draft_workflow_node_revisions_access';
+
+  // Override node edit access to prevent editors from directly editing
+  // published nodes, which would immediately publish their changes.
+  if (isset($items['node/%node/edit'])) {
+    $items['node/%node/edit']['access callback'] = 'draft_workflow_node_edit_access';
+    $items['node/%node/edit']['access arguments'] = array(1);
+  }
 }
 
 /**
@@ -669,10 +711,17 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       $form['options']['#access'] = FALSE;
 
       // Add "Make current revision" checkbox to revision information.
+      // Gate behind activate permission; also require publish permission if
+      // the node is currently published (activating changes public content).
+      $current_node = node_load($node->nid);
+      $can_activate = user_access('administer nodes') ||
+        (user_access('activate draft revisions') &&
+          ($current_node->status != NODE_PUBLISHED || user_access('publish draft workflow content')));
       $form['revision_information']['make_current'] = [
         '#type' => 'checkbox',
         '#title' => t('Make this the current revision'),
         '#default_value' => 0,
+        '#access' => $can_activate,
       ];
 
       if ($args[4] == 'new_revision') {
@@ -703,6 +752,10 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
             '@node_type' => node_type_get_name($node),
           ]) . '</strong>',
       ];
+      // Hide the Published status checkbox for users without publish permission.
+      if (!user_access('administer nodes') && !user_access('publish draft workflow content')) {
+        $form['options']['status']['#access'] = FALSE;
+      }
     }
   }
 }
