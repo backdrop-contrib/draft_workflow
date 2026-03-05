@@ -52,15 +52,20 @@ The module defines four permissions that allow you to separate editorial roles:
 
 | Permission | Description |
 |---|---|
-| **Create draft revisions** | Create new draft revisions and edit existing ones. |
-| **Activate draft revisions** | Make a draft revision the current (public) revision. |
-| **Publish and unpublish content** | Use the publish and unpublish workflow actions. |
+| **Create draft revisions** | Create new draft revisions and edit existing draft revisions. |
+| **Activate draft revisions** | Make a draft revision current on an **unpublished** node. |
+| **Publish and unpublish content** | Publish and unpublish nodes; also required to activate revisions on already-published nodes, since doing so changes what is publicly visible. |
 | **View pending draft revisions** | Access the Pending Review view and dashboard block. |
 
 A typical two-role setup might look like:
 
 - **Editor**: Grant _Create draft revisions_ and _View pending draft revisions_.
 - **Publisher**: Grant all four permissions.
+
+> **Important:** Users without _Publish and unpublish content_ cannot directly edit a
+> published node via its standard edit form — saving the form would immediately publish
+> their changes. Instead, editors should use the **Revisions** tab to copy or edit a
+> draft revision, then leave it for a publisher to review and make current.
 
 ### Make revision information more prominent
 
