@@ -146,6 +146,16 @@ function _draft_workflow_type_enabled($type) {
 }
 
 /**
+ * Returns whether forward draft revisions exist for a given content node.
+ *
+ */
+function _draft_workflow_node_has_forward_revisions(Node $node) {
+  $current_vid = $node->vid;
+  $forward_revisions = db_query('SELECT 1 FROM {node_revision} WHERE nid = :nid AND vid > :vid', array(':nid' => $node->nid, ':vid' => $current_vid))->fetchField();
+  return !empty($forward_revisions);
+}
+
+/**
  * Settings form for the Draft Workflow module.
  *
  * Displays per-content-type workflow settings and module permissions in role
@@ -706,6 +716,15 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
     }
 
     $args = arg();
+    $current_node = node_load($node->nid);
+
+    // Add a notice if editing the current public revision and there are forward
+    // revisions that exist.
+    $is_public_revision = ($current_node->vid == $node->vid) && $node->status == NODE_PUBLISHED;
+    if ($is_public_revision && _draft_workflow_node_has_forward_revisions($node)) {
+      backdrop_set_message(t('This is the current (public) revision, but there are newer draft revisions of this content. Editing this revision will not update the more recent draft versions.'), 'info');
+    }
+
     if (!empty($args[4]) && in_array($args[4], ['new_revision', 'edit_revision'])) {
       // Hide publishing options for non-current revisions.
       $form['options']['#access'] = FALSE;
@@ -713,7 +732,6 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       // Add "Make current revision" checkbox to revision information.
       // Gate behind activate permission; also require publish permission if
       // the node is currently published (activating changes public content).
-      $current_node = node_load($node->nid);
       $can_activate = user_access('administer nodes') ||
         (user_access('activate draft revisions') &&
           ($current_node->status != NODE_PUBLISHED || user_access('publish draft workflow content')));
