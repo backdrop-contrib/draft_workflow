@@ -1,0 +1,320 @@
+<?php
+/**
+ * @file
+ * Tests for the Draft Workflow module.
+ */
+
+/**
+ * Base class with helpers shared by the Draft Workflow tests.
+ */
+abstract class DraftWorkflowTestBase extends BackdropWebTestCase {
+
+  /**
+   * A person who can administer content.
+   *
+   * @var User
+   */
+  protected $admin;
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function setUp() {
+    $modules = func_get_args();
+    $modules[] = 'draft_workflow';
+    parent::setUp($modules);
+
+    $this->admin = $this->backdropCreateUser(array(
+      'access content',
+      'administer nodes',
+      'bypass node access',
+      'view revisions',
+      'revert revisions',
+      'create page content',
+      'edit any page content',
+    ));
+  }
+
+  /**
+   * Creates an editor who can create and activate drafts, but not publish.
+   *
+   * @param array $extra
+   *   Additional permissions.
+   *
+   * @return User
+   *   The editor.
+   */
+  protected function createEditor(array $extra = array()) {
+    return $this->backdropCreateUser(array_merge(array(
+      'access content',
+      'view revisions',
+      'edit any page content',
+      'create draft revisions',
+      'activate draft revisions',
+    ), $extra));
+  }
+
+  /**
+   * Creates a published page with a newer draft revision.
+   *
+   * @return array
+   *   An array with the node ID, the current revision ID and the draft
+   *   revision ID.
+   */
+  protected function createPageWithDraft() {
+    $node = $this->backdropCreateNode(array(
+      'type' => 'page',
+      'title' => 'Live title',
+      'status' => NODE_PUBLISHED,
+    ));
+    $live_vid = $node->vid;
+
+    $draft = node_load($node->nid, NULL, TRUE);
+    $draft->revision = TRUE;
+    $draft->is_active_revision = FALSE;
+    $draft->title = 'Draft title';
+    $draft->save();
+
+    return array($node->nid, $live_vid, $draft->vid);
+  }
+
+  /**
+   * Gives a revision an out-of-date published status.
+   *
+   * The module keeps revision statuses in sync, but older sites can have
+   * revisions with a stale status, so tests set one directly.
+   */
+  protected function setStaleRevisionStatus($vid, $status) {
+    db_update('node_revision')
+      ->fields(array('status' => $status))
+      ->condition('vid', $vid)
+      ->execute();
+  }
+
+  /**
+   * Returns a node's status from the {node} table.
+   */
+  protected function nodeStatus($nid) {
+    return (int) db_query('SELECT status FROM {node} WHERE nid = :nid', array(':nid' => $nid))->fetchField();
+  }
+
+  /**
+   * Returns the statuses of all of a node's revisions.
+   */
+  protected function revisionStatuses($nid) {
+    return array_map('intval', db_query('SELECT status FROM {node_revision} WHERE nid = :nid ORDER BY vid', array(':nid' => $nid))->fetchCol());
+  }
+
+  /**
+   * Returns a node's current revision ID from the {node} table.
+   */
+  protected function currentVid($nid) {
+    return (int) db_query('SELECT vid FROM {node} WHERE nid = :nid', array(':nid' => $nid))->fetchField();
+  }
+
+}
+
+/**
+ * Tests that revision actions respect the publish permission.
+ */
+class DraftWorkflowAccessTestCase extends DraftWorkflowTestBase {
+
+  /**
+   * Editing the current revision in place needs the same access as Edit.
+   */
+  public function testEditCurrentRevision() {
+    list($nid, $live_vid, $draft_vid) = $this->createPageWithDraft();
+
+    $this->backdropLogin($this->createEditor());
+    $this->backdropGet("node/$nid/edit");
+    $this->assertResponse(403, 'An editor without the publish permission cannot open the Edit tab of published content.');
+    $this->backdropGet("node/$nid/revisions/$live_vid/edit_revision");
+    $this->assertResponse(403, 'An editor without the publish permission cannot edit the current revision in place.');
+    $this->backdropGet("node/$nid/revisions/$draft_vid/edit_revision");
+    $this->assertResponse(200, 'An editor can edit a draft revision.');
+
+    $this->backdropLogin($this->admin);
+    $this->backdropGet("node/$nid/revisions/$live_vid/edit_revision");
+    $this->assertResponse(200, 'An administrator can edit the current revision in place.');
+  }
+
+  /**
+   * Making a revision current checks and keeps the node's status.
+   */
+  public function testActivateUsesNodeStatus() {
+    list($nid, $live_vid, $draft_vid) = $this->createPageWithDraft();
+    $this->setStaleRevisionStatus($draft_vid, NODE_NOT_PUBLISHED);
+
+    $this->backdropLogin($this->createEditor());
+    $this->backdropGet("node/$nid/revisions/$draft_vid/activate");
+    $this->assertResponse(403, 'A stale revision status does not let an editor without the publish permission activate a revision of published content.');
+
+    $this->backdropLogin($this->admin);
+    $this->backdropPost("node/$nid/revisions/$draft_vid/activate", array(), t('Save'));
+    $this->assertEqual($this->currentVid($nid), $draft_vid, 'The draft is now the current revision.');
+    $this->assertEqual($this->nodeStatus($nid), NODE_PUBLISHED, 'Making a revision with a stale status current does not unpublish the content.');
+    $this->assertEqual($this->revisionStatuses($nid), array(1, 1), 'All revisions have the node status.');
+  }
+
+  /**
+   * Core's revert page needs the same access as making a revision current.
+   */
+  public function testRevertUsesNodeStatus() {
+    list($nid, $live_vid, $draft_vid) = $this->createPageWithDraft();
+    // Make the draft current, so the first revision is an older one.
+    $draft = node_load($nid, $draft_vid, TRUE);
+    $draft->setIsActiveRevision();
+    $draft->save();
+    $this->setStaleRevisionStatus($live_vid, NODE_NOT_PUBLISHED);
+
+    $this->backdropLogin($this->createEditor(array('revert revisions')));
+    $this->backdropGet("node/$nid/revisions/$live_vid/revert");
+    $this->assertResponse(403, 'An editor with "Revert revisions" but without the publish permission cannot revert published content.');
+
+    $this->backdropLogin($this->admin);
+    $this->backdropPost("node/$nid/revisions/$live_vid/revert", array(), t('Revert'));
+    $node = node_load($nid, NULL, TRUE);
+    $this->assertEqual($node->title, 'Live title', 'The content was reverted.');
+    $this->assertEqual($this->nodeStatus($nid), NODE_PUBLISHED, 'Reverting to a revision with a stale status does not unpublish the content.');
+  }
+
+}
+
+/**
+ * Tests that published status is kept in sync across revisions.
+ */
+class DraftWorkflowStatusTestCase extends DraftWorkflowTestBase {
+
+  /**
+   * Previewing the node form does not change any status.
+   */
+  public function testPreviewDoesNotChangeStatus() {
+    $node = $this->backdropCreateNode(array(
+      'type' => 'page',
+      'status' => NODE_NOT_PUBLISHED,
+    ));
+
+    $this->backdropLogin($this->admin);
+    $this->backdropPost('node/' . $node->nid . '/edit', array('status' => NODE_PUBLISHED), t('Preview'));
+    $this->assertEqual($this->nodeStatus($node->nid), NODE_NOT_PUBLISHED, 'Preview does not publish the content.');
+    $this->assertEqual($this->revisionStatuses($node->nid), array(0), 'Preview does not change revision statuses.');
+
+    // Clear the node cache, as any cache clear on a live site would, so the
+    // check below sees the stored statuses rather than a cached node.
+    entity_get_controller('node')->resetCache(array($node->nid));
+    $this->backdropLogout();
+    $this->backdropGet('node/' . $node->nid);
+    $this->assertResponse(403, 'Anonymous visitors still cannot view the unpublished content after a preview.');
+  }
+
+  /**
+   * Saving from code, as bulk actions do, keeps all revisions in sync.
+   */
+  public function testSaveFromCodeSyncsRevisions() {
+    list($nid, $live_vid, $draft_vid) = $this->createPageWithDraft();
+    $this->assertEqual($this->revisionStatuses($nid), array(1, 1), 'A new draft has the node status.');
+
+    $node = node_load($nid, NULL, TRUE);
+    $node->status = NODE_NOT_PUBLISHED;
+    $node->save();
+    $this->assertEqual($this->revisionStatuses($nid), array(0, 0), 'Unpublishing from code updates every revision.');
+
+    $this->backdropLogin($this->admin);
+    $this->backdropPost("node/$nid/publish", array(), t('Publish'));
+    $this->assertEqual($this->nodeStatus($nid), NODE_PUBLISHED, 'The Publish button publishes the content.');
+    $this->assertEqual($this->revisionStatuses($nid), array(1, 1), 'The Publish button updates every revision.');
+  }
+
+}
+
+/**
+ * Tests saving drafts and making them current.
+ */
+class DraftWorkflowDraftTestCase extends DraftWorkflowTestBase {
+
+  /**
+   * "Save as a draft" on the Edit tab keeps the current revision current.
+   */
+  public function testSaveAsDraft() {
+    $node = $this->backdropCreateNode(array(
+      'type' => 'page',
+      'title' => 'Live title',
+      'status' => NODE_PUBLISHED,
+    ));
+
+    $this->backdropLogin($this->admin);
+    $this->backdropPost('node/' . $node->nid . '/edit', array(
+      'title' => 'Draft title',
+      'save_as_draft' => TRUE,
+    ), t('Save'));
+
+    $draft_vid = (int) db_query('SELECT MAX(vid) FROM {node_revision} WHERE nid = :nid', array(':nid' => $node->nid))->fetchField();
+    $this->assertNotEqual($draft_vid, $node->vid, 'A new revision was saved.');
+    $this->assertEqual($this->currentVid($node->nid), $node->vid, 'The current revision did not change.');
+    $this->assertEqual(node_load($node->nid, NULL, TRUE)->title, 'Live title', 'The live title did not change.');
+    $this->assertEqual(node_load($node->nid, $draft_vid, TRUE)->title, 'Draft title', 'The draft has the new title.');
+    $this->assertEqual($this->nodeStatus($node->nid), NODE_PUBLISHED, 'The content is still published.');
+    $this->assertText(t('It is not yet the current revision.'), 'The draft saved message is shown.');
+    $this->assertUrl("node/{$node->nid}/revisions/$draft_vid/view", array(), 'After saving, the draft is shown.');
+  }
+
+  /**
+   * Saving a draft does not change the URL alias.
+   */
+  public function testDraftKeepsAlias() {
+    $node = $this->backdropCreateNode(array(
+      'type' => 'page',
+      'title' => 'Live title',
+      'path' => array('alias' => 'live-page', 'auto' => FALSE),
+    ));
+
+    $this->backdropLogin($this->admin);
+    $this->backdropPost('node/' . $node->nid . '/revisions/' . $node->vid . '/new_revision', array('title' => 'Draft title'), t('Save'));
+
+    $alias = db_query('SELECT alias FROM {url_alias} WHERE source = :source', array(':source' => 'node/' . $node->nid))->fetchField();
+    $this->assertEqual($alias, 'live-page', 'Saving a draft keeps the URL alias.');
+  }
+
+}
+
+/**
+ * Tests the ready for review flag and reviewer emails.
+ */
+class DraftWorkflowReviewTestCase extends DraftWorkflowTestBase {
+
+  /**
+   * Marking a draft ready for review, emailing reviewers, and clearing it.
+   */
+  public function testReadyForReview() {
+    $reviewer = $this->createEditor();
+    // backdropCreateUser() puts the permissions on a new role; the account's
+    // roles also include "authenticated".
+    $roles = array_diff($reviewer->roles, array(BACKDROP_AUTHENTICATED_ROLE));
+    $reviewer_role = reset($roles);
+    config_set('node.type.page', 'settings.draft_workflow_notify', TRUE);
+    config_set('node.type.page', 'settings.draft_workflow_reviewer_roles', array($reviewer_role));
+
+    $node = $this->backdropCreateNode(array('type' => 'page', 'status' => NODE_PUBLISHED));
+    $this->backdropLogin($this->admin);
+    $this->backdropPost('node/' . $node->nid . '/revisions/' . $node->vid . '/new_revision', array('ready_for_review' => TRUE), t('Save'));
+
+    $draft_vid = (int) db_query('SELECT MAX(vid) FROM {node_revision} WHERE nid = :nid', array(':nid' => $node->nid))->fetchField();
+    $this->assertTrue(_draft_workflow_is_ready_for_review($draft_vid), 'The draft is marked ready for review.');
+
+    $mails = $this->backdropGetMails(array('id' => 'draft_workflow_review_requested'));
+    $this->assertEqual(count($mails), 1, 'One reviewer email was sent.');
+    $this->assertEqual($mails[0]['to'], $reviewer->mail, 'The email went to the reviewer.');
+
+    // Saving again while still marked does not send another email.
+    $this->backdropPost('node/' . $node->nid . '/revisions/' . $draft_vid . '/edit_revision', array('ready_for_review' => TRUE), t('Save'));
+    $this->assertEqual(count($this->backdropGetMails(array('id' => 'draft_workflow_review_requested'))), 1, 'Saving the marked draft again does not email reviewers again.');
+
+    $this->backdropGet('node/' . $node->nid . '/revisions');
+    $this->assertText(t('Ready for review'), 'The Revisions tab shows the ready for review marker.');
+
+    // Making the draft current clears the flag.
+    $this->backdropPost('node/' . $node->nid . '/revisions/' . $draft_vid . '/activate', array(), t('Save'));
+    $this->assertFalse(_draft_workflow_is_ready_for_review($draft_vid), 'Making the draft current clears the ready for review flag.');
+  }
+
+}

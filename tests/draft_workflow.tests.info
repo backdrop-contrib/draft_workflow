@@ -1,0 +1,23 @@
+[DraftWorkflowAccessTestCase]
+name = Access to revision actions
+description = Test that editing, activating and reverting revisions respect the publish permission.
+group = Draft Workflow
+file = draft_workflow.test
+
+[DraftWorkflowStatusTestCase]
+name = Published status of revisions
+description = Test that published status belongs to the node and is kept in sync across revisions.
+group = Draft Workflow
+file = draft_workflow.test
+
+[DraftWorkflowDraftTestCase]
+name = Saving drafts
+description = Test saving drafts from the edit form and making them current.
+group = Draft Workflow
+file = draft_workflow.test
+
+[DraftWorkflowReviewTestCase]
+name = Ready for review
+description = Test the ready for review flag and reviewer emails.
+group = Draft Workflow
+file = draft_workflow.test
