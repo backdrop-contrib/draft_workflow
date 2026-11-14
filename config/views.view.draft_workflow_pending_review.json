@@ -210,6 +210,28 @@
                         "empty_zero": 0,
                         "hide_alter_empty": 1
                     },
+                    "draft_workflow_ready_for_review": {
+                        "id": "draft_workflow_ready_for_review",
+                        "table": "node",
+                        "field": "draft_workflow_ready_for_review",
+                        "relationship": "none",
+                        "group_type": "group",
+                        "ui_name": "",
+                        "label": "Review",
+                        "exclude": 0,
+                        "element_type": "",
+                        "element_class": "",
+                        "element_label_type": "",
+                        "element_label_class": "",
+                        "element_label_colon": 0,
+                        "element_wrapper_type": "",
+                        "element_wrapper_class": "",
+                        "element_default_classes": 0,
+                        "empty": "",
+                        "hide_empty": 0,
+                        "empty_zero": 0,
+                        "hide_alter_empty": 1
+                    },
                     "revisions_link": {
                         "id": "revisions_link",
                         "table": "views",
@@ -329,6 +351,7 @@
                         "status": "status",
                         "changed": "changed",
                         "draft_workflow_latest_revision_log": "draft_workflow_latest_revision_log",
+                        "draft_workflow_ready_for_review": "draft_workflow_ready_for_review",
                         "revisions_link": "revisions_link"
                     },
                     "info": {
@@ -366,6 +389,11 @@
                             "empty_column": 0
                         },
                         "draft_workflow_latest_revision_log": {
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0
+                        },
+                        "draft_workflow_ready_for_review": {
                             "align": "",
                             "separator": "",
                             "empty_column": 0

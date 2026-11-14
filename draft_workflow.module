@@ -509,18 +509,21 @@ function draft_workflow_node_revisions_overview(Node $node) {
   }
 
   $revision_list = node_revision_list($node);
+  $ready_vids = db_query('SELECT vid FROM {draft_workflow_review} WHERE nid = :nid', array(':nid' => $node->nid))->fetchCol();
 
   $key = 0;
   foreach ($revision_list as $vid => $revision) {
     $node_revision = node_load($node->nid, $vid);
 
-    // Add "View - " to the existing revision date link text.
+    // Add "View - " to the existing revision date link text, and a marker
+    // for drafts that are ready for review.
     $date_str = format_date($revision->timestamp, 'short');
+    $marker = in_array($vid, $ready_vids) ? ' <span class="marker draft-workflow-ready-for-review">' . t('Ready for review') . '</span>' : '';
     if ($revision->current_vid > 0) {
-      $build['node_revisions_table']['#rows'][$key][0]['data'] = str_replace(">$date_str<", ">View - $date_str<", $build['node_revisions_table']['#rows'][$key][0]['data']);
+      $build['node_revisions_table']['#rows'][$key][0]['data'] = str_replace(">$date_str<", ">View - $date_str<", $build['node_revisions_table']['#rows'][$key][0]['data']) . $marker;
     }
     else {
-      $build['node_revisions_table']['#rows'][$key][0] = str_replace(">$date_str<", ">View - $date_str<", $build['node_revisions_table']['#rows'][$key][0]);
+      $build['node_revisions_table']['#rows'][$key][0] = str_replace(">$date_str<", ">View - $date_str<", $build['node_revisions_table']['#rows'][$key][0]) . $marker;
     }
 
     // Edit the action links.
@@ -782,6 +785,20 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
         '#access' => $can_activate,
       ];
 
+      // Let people mark the draft as ready for review. A copy (new_revision)
+      // starts unmarked; an edited draft keeps its current state.
+      $form['revision_information']['ready_for_review'] = [
+        '#type' => 'checkbox',
+        '#title' => t('Ready for review'),
+        '#description' => t('Mark this draft as ready to be reviewed.'),
+        '#default_value' => ($args[4] == 'edit_revision') ? (int) _draft_workflow_is_ready_for_review($node->vid) : 0,
+        '#states' => [
+          'invisible' => [
+            ':input[name="make_current"]' => ['checked' => TRUE],
+          ],
+        ],
+      ];
+
       if ($args[4] == 'new_revision') {
         $form['revision_information']['revision']['#type'] = 'hidden';
         $form['revision_information']['revision']['#value'] = 1;
@@ -915,6 +932,10 @@ function draft_workflow_node_submit(Node $node, $form, &$form_state) {
     // belongs to the node, so take it from the node table instead.
     if (in_array($args[4], ['new_revision', 'edit_revision'])) {
       $node->status = (int) db_query('SELECT status FROM {node} WHERE nid = :nid', [':nid' => $node->nid])->fetchField();
+
+      // Saved to {draft_workflow_review} in draft_workflow_node_update(), once
+      // the revision ID is known.
+      $node->draft_workflow_ready_for_review = !empty($form_state['values']['ready_for_review']);
     }
   }
 
@@ -924,6 +945,77 @@ function draft_workflow_node_submit(Node $node, $form, &$form_state) {
     ->condition('nid', $node->nid)
     ->execute();
 
+}
+
+/**
+ * Implements hook_node_update().
+ *
+ * Records or clears the "ready for review" flag for the saved revision.
+ */
+function draft_workflow_node_update(Node $node) {
+  // A revision that is now current is no longer waiting for review.
+  if ($node->isActiveRevision()) {
+    db_delete('draft_workflow_review')
+      ->condition('vid', $node->vid)
+      ->execute();
+    return;
+  }
+
+  // Only the draft forms set this; saves from code leave the flag as it is.
+  if (!isset($node->draft_workflow_ready_for_review)) {
+    return;
+  }
+
+  if (!$node->draft_workflow_ready_for_review) {
+    db_delete('draft_workflow_review')
+      ->condition('vid', $node->vid)
+      ->execute();
+    return;
+  }
+
+  if (!_draft_workflow_is_ready_for_review($node->vid)) {
+    global $user;
+    db_insert('draft_workflow_review')
+      ->fields(array(
+        'vid' => $node->vid,
+        'nid' => $node->nid,
+        'uid' => $user->uid,
+        'created' => REQUEST_TIME,
+      ))
+      ->execute();
+    module_invoke_all('draft_workflow_review_requested', $node, $user);
+  }
+}
+
+/**
+ * Implements hook_node_revision_delete().
+ */
+function draft_workflow_node_revision_delete(Node $node) {
+  db_delete('draft_workflow_review')
+    ->condition('vid', $node->vid)
+    ->execute();
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function draft_workflow_node_delete(Node $node) {
+  db_delete('draft_workflow_review')
+    ->condition('nid', $node->nid)
+    ->execute();
+}
+
+/**
+ * Returns whether a revision is marked ready for review.
+ *
+ * @param int $vid
+ *   The revision ID.
+ *
+ * @return bool
+ *   TRUE if the revision is marked ready for review.
+ */
+function _draft_workflow_is_ready_for_review($vid) {
+  return (bool) db_query('SELECT 1 FROM {draft_workflow_review} WHERE vid = :vid', array(':vid' => $vid))->fetchField();
 }
 
 /**
@@ -982,6 +1074,8 @@ function draft_workflow_autoload_info() {
   return array(
     'draft_workflow_handler_filter_forward_revisions' => 'views/draft_workflow_handler_filter_forward_revisions.inc',
     'draft_workflow_handler_field_latest_revision_log' => 'views/draft_workflow_handler_field_latest_revision_log.inc',
+    'draft_workflow_handler_filter_ready_for_review' => 'views/draft_workflow_handler_filter_ready_for_review.inc',
+    'draft_workflow_handler_field_ready_for_review' => 'views/draft_workflow_handler_field_ready_for_review.inc',
   );
 }
 

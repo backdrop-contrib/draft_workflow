@@ -29,5 +29,20 @@ function draft_workflow_views_data() {
     ),
   );
 
+  $data['node']['draft_workflow_ready_for_review'] = array(
+    'title' => t('Has a draft ready for review'),
+    'help' => t('Whether the content has a draft revision, newer than the current revision, that is marked ready for review.'),
+    'field' => array(
+      'handler' => 'draft_workflow_handler_field_ready_for_review',
+      'label' => t('Ready for review'),
+      'click sortable' => TRUE,
+    ),
+    'filter' => array(
+      'handler' => 'draft_workflow_handler_filter_ready_for_review',
+      'label' => t('Has a draft ready for review'),
+      'type' => 'yes-no',
+    ),
+  );
+
   return $data;
 }
