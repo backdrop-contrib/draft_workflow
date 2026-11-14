@@ -302,14 +302,25 @@ function theme_draft_workflow_settings_form($variables) {
     t('Content type'),
     t('Enable draft workflow'),
     t('Prominent revision info'),
+    t('Reviewer emails'),
   );
 
+  $role_options = _draft_workflow_reviewer_role_options();
   $ct_rows = array();
+  $any_notify = FALSE;
   foreach (node_type_get_types() as $type_name => $type) {
+    // Reviewer emails are set on the content type form; summarize them here.
+    $notify_roles = array_intersect_key($role_options, array_flip((array) config_get('node.type.' . $type_name, 'settings.draft_workflow_reviewer_roles')));
+    $notify_on = config_get('node.type.' . $type_name, 'settings.draft_workflow_notify') && $notify_roles;
+    $any_notify = $any_notify || $notify_on;
+    $notify_summary = $notify_on ? implode(', ', $notify_roles) : t('Off');
+    $notify_summary .= ' (' . l(t('change'), 'admin/structure/types/manage/' . str_replace('_', '-', $type_name)) . ')';
+
     $ct_rows[] = array(
       check_plain($type->name),
       array('data' => backdrop_render($form['content_types'][$type_name]['enabled']), 'class' => array('checkbox')),
       array('data' => backdrop_render($form['content_types'][$type_name]['prominent']), 'class' => array('checkbox')),
+      $notify_summary,
     );
   }
 
@@ -317,6 +328,10 @@ function theme_draft_workflow_settings_form($variables) {
   $output .= '<p>' . t('Enable the draft workflow for specific content types. These settings are also available on each <a href="!url">content type edit page</a>.', array(
     '!url' => url('admin/structure/types'),
   )) . '</p>';
+  // Built-in reviewer emails and a rule on the same event would both send.
+  if ($any_notify) {
+    $output .= _draft_workflow_review_rules_warning();
+  }
   $output .= theme('table', array(
     'header' => $ct_header,
     'rows' => $ct_rows,
@@ -698,7 +713,96 @@ function draft_workflow_form_node_type_form_alter(&$form, &$form_state) {
     '#description' => t('Show revision information above the sidebar tabs, making it always visible when editing content of this type.'),
     '#default_value' => config_get('node.type.' . $type, 'settings.draft_workflow_prominent_revisions'),
   ];
+
+  $role_options = _draft_workflow_reviewer_role_options();
+  $form['revision']['draft_workflow_notify'] = [
+    '#type' => 'checkbox',
+    '#title' => t('Email reviewers when a draft is ready for review'),
+    '#description' => t('When someone marks a draft of this content type as ready for review, send an email to the people in the reviewer roles below.'),
+    '#default_value' => (bool) config_get('node.type.' . $type, 'settings.draft_workflow_notify'),
+  ];
+  if ($warning = _draft_workflow_review_rules_warning()) {
+    $form['revision']['draft_workflow_rules_warning'] = [
+      '#type' => 'container',
+      'message' => ['#markup' => $warning],
+      '#states' => [
+        'visible' => [
+          ':input[name="draft_workflow_notify"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+  }
+  $form['revision']['draft_workflow_reviewer_roles'] = [
+    '#type' => 'checkboxes',
+    '#title' => t('Reviewer roles'),
+    '#options' => $role_options,
+    '#default_value' => (array) config_get('node.type.' . $type, 'settings.draft_workflow_reviewer_roles'),
+    '#description' => $role_options
+      ? t('Only roles with the "Activate draft revisions" or "Administer content" permission are listed. To open the draft from the email, reviewers also need the "View content revisions" permission.')
+      : t('No roles can review drafts yet. Give a role the "Activate draft revisions" permission first.'),
+    '#states' => [
+      'visible' => [
+        ':input[name="draft_workflow_notify"]' => ['checked' => TRUE],
+      ],
+    ],
+  ];
+
   $form['#submit'][] = 'draft_workflow_node_type_form_submit';
+}
+
+/**
+ * Returns the active Rules that react to a draft being marked ready for review.
+ *
+ * @return array
+ *   Rule labels keyed by rule machine name. Empty if Rules is not enabled.
+ */
+function _draft_workflow_active_review_rules() {
+  $rules = array();
+  if (module_exists('rules') && ($set = rules_get_cache('event_draft_workflow_review_requested'))) {
+    foreach ($set as $rule) {
+      if (!empty($rule->active)) {
+        $rules[$rule->name] = $rule->label;
+      }
+    }
+  }
+  return $rules;
+}
+
+/**
+ * Returns a warning that Rules may send reviewer emails too, or ''.
+ *
+ * Used next to the built-in reviewer email settings: if both the built-in
+ * email and a rule send email, reviewers get two.
+ */
+function _draft_workflow_review_rules_warning() {
+  $rules = _draft_workflow_active_review_rules();
+  if (empty($rules)) {
+    return '';
+  }
+  $names = array();
+  foreach ($rules as $name => $label) {
+    $names[] = (module_exists('rules_admin') && user_access('administer rules'))
+      ? l($label, 'admin/config/workflow/rules/reaction/manage/' . $name)
+      : check_plain($label);
+  }
+  $message = format_plural(count($rules),
+    'Rules also reacts when a draft is marked ready for review (active rule: !rules). If that rule sends email, reviewers may get two emails.',
+    'Rules also reacts when a draft is marked ready for review (active rules: !rules). If those rules send email, reviewers may get two emails.',
+    array('!rules' => implode(', ', $names))
+  );
+  return theme('status_messages', array('messages' => array('warning' => array($message))));
+}
+
+/**
+ * Returns the roles that may be chosen as reviewers.
+ *
+ * @return array
+ *   Role labels keyed by role machine name: roles that can activate draft
+ *   revisions or administer content.
+ */
+function _draft_workflow_reviewer_role_options() {
+  $roles = user_roles(TRUE, 'activate draft revisions') + user_roles(TRUE, 'administer nodes');
+  return array_map('check_plain', $roles);
 }
 
 /**
@@ -708,6 +812,8 @@ function draft_workflow_node_type_form_submit($form, &$form_state) {
   $config = config('node.type.' . $form_state['values']['type']);
   $config->set('settings.draft_workflow_enabled', (bool) $form_state['values']['draft_workflow_enabled']);
   $config->set('settings.draft_workflow_prominent_revisions', (bool) $form_state['values']['draft_workflow_prominent_revisions']);
+  $config->set('settings.draft_workflow_notify', (bool) $form_state['values']['draft_workflow_notify']);
+  $config->set('settings.draft_workflow_reviewer_roles', array_values(array_filter((array) $form_state['values']['draft_workflow_reviewer_roles'])));
   $config->save();
 }
 
@@ -984,7 +1090,76 @@ function draft_workflow_node_update(Node $node) {
       ))
       ->execute();
     module_invoke_all('draft_workflow_review_requested', $node, $user);
+    _draft_workflow_notify_reviewers($node, $user);
+    if (module_exists('rules')) {
+      rules_invoke_event('draft_workflow_review_requested', $node, $user);
+    }
   }
+}
+
+/**
+ * Emails the reviewer roles that a draft is ready for review.
+ *
+ * Does nothing unless notifications are turned on for the content type. Only
+ * roles that can still review drafts are used, and the person who marked the
+ * draft is not emailed.
+ *
+ * @param Node $node
+ *   The node, at the draft revision that is ready for review.
+ * @param object $account
+ *   The person who marked the draft ready for review.
+ */
+function _draft_workflow_notify_reviewers(Node $node, $account) {
+  if (!config_get('node.type.' . $node->type, 'settings.draft_workflow_notify')) {
+    return;
+  }
+  $roles = array_intersect(
+    (array) config_get('node.type.' . $node->type, 'settings.draft_workflow_reviewer_roles'),
+    array_keys(_draft_workflow_reviewer_role_options())
+  );
+  if (empty($roles)) {
+    return;
+  }
+
+  $uids = db_query('SELECT DISTINCT u.uid FROM {users} u INNER JOIN {users_roles} ur ON ur.uid = u.uid WHERE ur.role IN (:roles) AND u.status = 1 AND u.uid <> :requester', array(
+    ':roles' => array_values($roles),
+    ':requester' => $account->uid,
+  ))->fetchCol();
+
+  foreach (user_load_multiple($uids) as $reviewer) {
+    if (empty($reviewer->mail)) {
+      continue;
+    }
+    backdrop_mail('draft_workflow', 'review_requested', $reviewer->mail, user_preferred_language($reviewer), array(
+      'node' => $node,
+      'requester' => $account,
+      'reviewer' => $reviewer,
+    ));
+  }
+}
+
+/**
+ * Implements hook_mail().
+ */
+function draft_workflow_mail($key, &$message, $params) {
+  if ($key != 'review_requested') {
+    return;
+  }
+  $node = $params['node'];
+  $options = array('langcode' => $message['language']->langcode);
+  $t_args = array(
+    '@site' => config_get('system.core', 'site_name'),
+    '@type' => node_type_get_name($node),
+    '@title' => $node->title,
+    '@name' => user_format_name($params['requester']),
+    '@draft_url' => url('node/' . $node->nid . '/revisions/' . $node->vid . '/view', array('absolute' => TRUE)),
+    '@revisions_url' => url('node/' . $node->nid . '/revisions', array('absolute' => TRUE)),
+  );
+
+  $message['subject'] = t('[@site] Draft ready for review: @title', $t_args, $options);
+  $message['body'][] = t('@name has marked a draft of the @type "@title" as ready for review.', $t_args, $options);
+  $message['body'][] = t('View the draft: @draft_url', $t_args, $options);
+  $message['body'][] = t('All revisions: @revisions_url', $t_args, $options);
 }
 
 /**
