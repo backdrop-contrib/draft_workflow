@@ -46,11 +46,11 @@ function draft_workflow_menu() {
 
   $items['admin/config/content/draft-workflow'] = array(
     'title' => 'Draft Workflow',
-    'description' => 'Configure permissions for the Draft Workflow module.',
+    'description' => 'Choose which content types use Draft Workflow, and configure its permissions.',
     'page callback' => 'backdrop_get_form',
     'page arguments' => array('draft_workflow_settings_form'),
     'access callback' => 'user_access',
-    'access arguments' => array('administer nodes'),
+    'access arguments' => array('administer content types'),
     'type' => MENU_NORMAL_ITEM,
   );
 
@@ -177,18 +177,22 @@ function draft_workflow_settings_form($form, &$form_state) {
   $roles = user_roles();
 
   // Permission checkboxes — kept in $form so the Form API processes them on
-  // submission. The theme function renders them into a matrix table.
-  $form['perm'] = array('#tree' => TRUE);
-  foreach ($roles as $role_name => $role_label) {
-    $role = user_role_load($role_name);
-    $role_perms = ($role && isset($role->permissions)) ? $role->permissions : array();
-    foreach ($module_perms as $perm_name => $perm_info) {
-      $form['perm'][$role_name][$perm_name] = array(
-        '#type' => 'checkbox',
-        '#default_value' => in_array($perm_name, $role_perms) ? 1 : 0,
-        '#title' => check_plain($role_label),
-        '#title_display' => 'invisible',
-      );
+  // submission. The theme function renders them into a matrix table. Only
+  // people who may administer permissions can see and change them, as on the
+  // core Permissions page.
+  if (user_access('administer permissions')) {
+    $form['perm'] = array('#tree' => TRUE);
+    foreach ($roles as $role_name => $role_label) {
+      $role = user_role_load($role_name);
+      $role_perms = ($role && isset($role->permissions)) ? $role->permissions : array();
+      foreach ($module_perms as $perm_name => $perm_info) {
+        $form['perm'][$role_name][$perm_name] = array(
+          '#type' => 'checkbox',
+          '#default_value' => in_array($perm_name, $role_perms) ? 1 : 0,
+          '#title' => check_plain($role_label),
+          '#title_display' => 'invisible',
+        );
+      }
     }
   }
 
@@ -223,15 +227,15 @@ function draft_workflow_settings_form($form, &$form_state) {
  * Submit handler for draft_workflow_settings_form().
  */
 function draft_workflow_settings_form_submit($form, &$form_state) {
-  $module_perms = array_keys(draft_workflow_permission());
-  $roles = user_roles();
-
-  foreach ($roles as $role_name => $role_label) {
-    $permissions = array();
-    foreach ($module_perms as $perm) {
-      $permissions[$perm] = !empty($form_state['values']['perm'][$role_name][$perm]);
+  if (user_access('administer permissions') && isset($form_state['values']['perm'])) {
+    $module_perms = array_keys(draft_workflow_permission());
+    foreach (user_roles() as $role_name => $role_label) {
+      $permissions = array();
+      foreach ($module_perms as $perm) {
+        $permissions[$perm] = !empty($form_state['values']['perm'][$role_name][$perm]);
+      }
+      user_role_change_permissions($role_name, $permissions);
     }
-    user_role_change_permissions($role_name, $permissions);
   }
 
   foreach (node_type_get_types() as $type_name => $type) {
@@ -264,7 +268,7 @@ function theme_draft_workflow_settings_form($variables) {
   }
 
   $perm_rows = array();
-  foreach ($module_perms as $perm_name => $perm_info) {
+  foreach (isset($form['perm']) ? $module_perms : array() as $perm_name => $perm_info) {
     $row = array();
     $row[] = '<strong>' . check_plain($perm_info['title']) . '</strong>'
       . '<div class="description">' . check_plain($perm_info['description']) . '</div>';
@@ -279,15 +283,19 @@ function theme_draft_workflow_settings_form($variables) {
 
   $output = '<p>' . t('When enabled for a content type, this module lets you create draft revisions ahead of the current published version, allowing you to have draft versions ready for review before making them public. The current revision is what the public will see if the node is published — any revision can be made current at any time.') . '</p>';
 
-  $output .= '<h2>' . t('Permissions') . '</h2>';
-  $output .= '<p>' . t('Configure which roles have access to draft workflow actions. These permissions are also available on the main <a href="!url">Permissions</a> page.', array(
-    '!url' => url('admin/config/people/permissions'),
-  )) . '</p>';
-  $output .= theme('table', array(
-    'header' => $perm_header,
-    'rows' => $perm_rows,
-    'attributes' => array('id' => 'draft-workflow-permissions'),
-  ));
+  // The permissions table is only in the form for people who may administer
+  // permissions.
+  if (isset($form['perm'])) {
+    $output .= '<h2>' . t('Permissions') . '</h2>';
+    $output .= '<p>' . t('Configure which roles have access to draft workflow actions. These permissions are also available on the main <a href="!url">Permissions</a> page.', array(
+      '!url' => url('admin/config/people/permissions'),
+    )) . '</p>';
+    $output .= theme('table', array(
+      'header' => $perm_header,
+      'rows' => $perm_rows,
+      'attributes' => array('id' => 'draft-workflow-permissions'),
+    ));
+  }
 
   // --- Content type settings table ---
   $ct_header = array(
