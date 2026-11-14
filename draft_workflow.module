@@ -307,10 +307,13 @@ function theme_draft_workflow_settings_form($variables) {
 
   $role_options = _draft_workflow_reviewer_role_options();
   $ct_rows = array();
+  $any_notify = FALSE;
   foreach (node_type_get_types() as $type_name => $type) {
     // Reviewer emails are set on the content type form; summarize them here.
     $notify_roles = array_intersect_key($role_options, array_flip((array) config_get('node.type.' . $type_name, 'settings.draft_workflow_reviewer_roles')));
-    $notify_summary = (config_get('node.type.' . $type_name, 'settings.draft_workflow_notify') && $notify_roles) ? implode(', ', $notify_roles) : t('Off');
+    $notify_on = config_get('node.type.' . $type_name, 'settings.draft_workflow_notify') && $notify_roles;
+    $any_notify = $any_notify || $notify_on;
+    $notify_summary = $notify_on ? implode(', ', $notify_roles) : t('Off');
     $notify_summary .= ' (' . l(t('change'), 'admin/structure/types/manage/' . str_replace('_', '-', $type_name)) . ')';
 
     $ct_rows[] = array(
@@ -325,6 +328,10 @@ function theme_draft_workflow_settings_form($variables) {
   $output .= '<p>' . t('Enable the draft workflow for specific content types. These settings are also available on each <a href="!url">content type edit page</a>.', array(
     '!url' => url('admin/structure/types'),
   )) . '</p>';
+  // Built-in reviewer emails and a rule on the same event would both send.
+  if ($any_notify) {
+    $output .= _draft_workflow_review_rules_warning();
+  }
   $output .= theme('table', array(
     'header' => $ct_header,
     'rows' => $ct_rows,
@@ -714,6 +721,17 @@ function draft_workflow_form_node_type_form_alter(&$form, &$form_state) {
     '#description' => t('When someone marks a draft of this content type as ready for review, send an email to the people in the reviewer roles below.'),
     '#default_value' => (bool) config_get('node.type.' . $type, 'settings.draft_workflow_notify'),
   ];
+  if ($warning = _draft_workflow_review_rules_warning()) {
+    $form['revision']['draft_workflow_rules_warning'] = [
+      '#type' => 'container',
+      'message' => ['#markup' => $warning],
+      '#states' => [
+        'visible' => [
+          ':input[name="draft_workflow_notify"]' => ['checked' => TRUE],
+        ],
+      ],
+    ];
+  }
   $form['revision']['draft_workflow_reviewer_roles'] = [
     '#type' => 'checkboxes',
     '#title' => t('Reviewer roles'),
@@ -730,6 +748,49 @@ function draft_workflow_form_node_type_form_alter(&$form, &$form_state) {
   ];
 
   $form['#submit'][] = 'draft_workflow_node_type_form_submit';
+}
+
+/**
+ * Returns the active Rules that react to a draft being marked ready for review.
+ *
+ * @return array
+ *   Rule labels keyed by rule machine name. Empty if Rules is not enabled.
+ */
+function _draft_workflow_active_review_rules() {
+  $rules = array();
+  if (module_exists('rules') && ($set = rules_get_cache('event_draft_workflow_review_requested'))) {
+    foreach ($set as $rule) {
+      if (!empty($rule->active)) {
+        $rules[$rule->name] = $rule->label;
+      }
+    }
+  }
+  return $rules;
+}
+
+/**
+ * Returns a warning that Rules may send reviewer emails too, or ''.
+ *
+ * Used next to the built-in reviewer email settings: if both the built-in
+ * email and a rule send email, reviewers get two.
+ */
+function _draft_workflow_review_rules_warning() {
+  $rules = _draft_workflow_active_review_rules();
+  if (empty($rules)) {
+    return '';
+  }
+  $names = array();
+  foreach ($rules as $name => $label) {
+    $names[] = (module_exists('rules_admin') && user_access('administer rules'))
+      ? l($label, 'admin/config/workflow/rules/reaction/manage/' . $name)
+      : check_plain($label);
+  }
+  $message = format_plural(count($rules),
+    'Rules also reacts when a draft is marked ready for review (active rule: !rules). If that rule sends email, reviewers may get two emails.',
+    'Rules also reacts when a draft is marked ready for review (active rules: !rules). If those rules send email, reviewers may get two emails.',
+    array('!rules' => implode(', ', $names))
+  );
+  return theme('status_messages', array('messages' => array('warning' => array($message))));
 }
 
 /**
