@@ -19,8 +19,24 @@ site visitors. When this revision is ready, you can make it or any other revisio
 Using this module
 -----------------
 
-Once installed, navigate to the **Revisions** tab on any node to manage its revisions.
-From there you can:
+### Creating a draft
+
+There are two ways to start a draft:
+
+- **From the Edit tab:** open the **Revision information** section, check **Save as a
+  draft**, and save. Your changes are saved as a new draft revision, and the current
+  revision stays as it is. While this box is checked, the publishing options and URL
+  settings are hidden, because they belong to the content as a whole, not to a draft.
+- **From the Revisions tab:** use **Copy current revision**, or **Copy this revision**
+  on any revision.
+
+After saving a draft, you land on the draft itself, with a message saying it is not
+yet the current revision.
+
+### The Revisions tab
+
+Navigate to the **Revisions** tab on any node to manage its revisions. From there you
+can:
 
 - **Publish or unpublish** the content using the buttons at the top of the page.
 - **Copy the current revision** to create a new draft without affecting what is
@@ -28,9 +44,25 @@ From there you can:
 - **View, edit, or copy any revision** using the action links in the revisions table.
 - **Make any revision the current revision** — the version site visitors will see.
 
-When editing or copying a non-current revision, the publishing options are hidden to
-avoid confusion. Instead, a single "Make this the current revision" checkbox is
-available in the Revision information section.
+When editing or copying a non-current revision, the publishing options and URL
+settings are hidden to avoid confusion. Instead, a single "Make this the current
+revision" checkbox is available in the Revision information section.
+
+Good to know:
+
+- **Published or not is a setting of the content, not of a revision.** Saving a draft
+  never publishes or unpublishes the content.
+- **The URL alias follows the current revision.** Changing a draft's title does not
+  change the page's URL until the draft is made current.
+- If you open the regular **Edit** tab while a newer draft exists, a message warns
+  you, with a link to edit the latest draft instead.
+
+### Ready for review
+
+When a draft is finished, check **Ready for review** when saving it (on the draft
+forms, or next to "Save as a draft" on the Edit tab). Drafts that are ready for review
+are marked on the Revisions tab. The mark is removed when the box is unchecked, or
+when the draft is made current.
 
 Pending Review view
 -------------------
@@ -38,13 +70,32 @@ Pending Review view
 The module provides a **Pending Review** view at `admin/content/drafts` (also
 available as a tab alongside the main Content list). It shows all nodes that have
 draft revisions newer than the currently published revision, along with the latest
-draft note left by an editor.
+draft note left by an editor, and a **Review** column for content with a draft that
+is ready for review.
+
+The view can also be filtered by **Has a draft ready for review**. On sites that
+installed the module before this column was added, the view is not changed
+automatically: add the "Ready for review" field in the Views UI if you want it.
 
 A **Pending Review block** is also available. Add it to a dashboard or admin layout
 to show a quick count of content awaiting review, with a link to the full list.
 
 Configuration
 -------------
+
+### Settings page
+
+Go to **Admin > Configuration > Content authoring > Draft Workflow**
+(`admin/config/content/draft-workflow`) to:
+
+- Turn the draft workflow on or off for each content type.
+- Turn on **Prominent revision info** for each content type (see below).
+- See which content types email reviewers (set on each content type; see below).
+- Set the module's permissions for each role.
+
+The page requires the _Administer content types_ permission. The permissions table is
+only shown to people who also have _Administer permissions_. All of these settings are
+also available on each content type's edit page and on the main Permissions page.
 
 ### Permissions
 
@@ -62,10 +113,10 @@ A typical two-role setup might look like:
 - **Editor**: Grant _Create draft revisions_ and _View pending draft revisions_.
 - **Publisher**: Grant all four permissions.
 
-> **Important:** Users without _Publish and unpublish content_ cannot directly edit a
-> published node via its standard edit form — saving the form would immediately publish
-> their changes. Instead, editors should use the **Revisions** tab to copy or edit a
-> draft revision, then leave it for a publisher to review and make current.
+> **Important:** Saving the regular edit form makes your changes the current, live
+> version. People without _Publish and unpublish content_ should check **Save as a
+> draft** when editing published content (or work from the **Revisions** tab), then
+> mark the draft ready for review for a publisher to make current.
 
 ### Make revision information more prominent
 
@@ -75,12 +126,28 @@ this section always visible by enabling a per-content-type setting:
 
 1. Go to **Admin > Structure > Content Types**.
 2. Click **Edit** for the content type you want to configure.
-3. Open the **Revision** section.
+3. Open the **Revision settings** tab.
 4. Check **Display revision information prominently**.
 
 When enabled, the revision information fieldset will appear above the sidebar tabs
 on all editing forms for that content type, making it immediately visible without
 requiring an extra click.
+
+### Email reviewers
+
+The module can email reviewers when a draft is marked ready for review. This is set
+for each content type:
+
+1. Go to **Admin > Structure > Content Types** and click **Edit** for the content type.
+2. Open the **Revision settings** tab.
+3. Check **Email reviewers when a draft is ready for review**.
+4. Choose one or more **Reviewer roles**. Only roles with the _Activate draft
+   revisions_ or _Administer content_ permission are listed.
+
+Each active person in those roles gets an email with links to the draft and to the
+Revisions tab. The person who marked the draft ready for review is not emailed, and
+saving the draft again while it stays marked does not send another email. To open the
+draft from the email, reviewers also need core's _View content revisions_ permission.
 
 Related Modules
 ---------------
@@ -91,6 +158,29 @@ Install the [Diff module](https://backdropcms.org/project/diff) to enable
 side-by-side comparisons between revisions. When Diff is active, a **Diff**
 link appears in the revisions table, letting editors and reviewers quickly see
 exactly what changed between a draft and the current live version.
+
+### Rules
+
+The [Rules module](https://backdropcms.org/project/rules) is optional. When it is
+enabled, this module provides:
+
+- An event, **A draft is marked ready for review**, with the draft revision and the
+  person who marked it, for sites that want their own notifications or other actions.
+- A default rule, **Draft Workflow: email reviewers when a draft is ready for review**.
+  It is **disabled** by default and emails the Administrator role. Enable it and
+  change the role in the Rules UI. Note that, unlike the built-in email, Rules' "Send
+  mail to all users of a role" action also emails blocked accounts and the person who
+  marked the draft.
+
+If a rule reacts to this event while a content type also has **Email reviewers**
+turned on, a warning appears on the content type form and the settings page, because
+reviewers may get two emails. Turn off one or the other.
+
+For developers
+--------------
+
+`hook_draft_workflow_review_requested($node, $account)` is invoked once when a draft
+is marked ready for review. See `draft_workflow.api.php`.
 
 Installation
 ------------
