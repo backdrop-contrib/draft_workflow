@@ -748,6 +748,12 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       // Hide publishing options for non-current revisions.
       $form['options']['#access'] = FALSE;
 
+      // Hide the URL settings too: the alias belongs to the node, and is only
+      // changed when a revision is made current (see
+      // draft_workflow_node_presave()). Path module adds these settings after
+      // this hook runs, so hide them in a #process callback instead.
+      $form['#process'][] = '_draft_workflow_hide_path_settings';
+
       // Add "Make current revision" checkbox to revision information.
       // Gate behind activate permission; also require publish permission if
       // the node is currently published (activating changes public content).
@@ -810,6 +816,19 @@ function draft_workflow_new_revision_submit($form, &$form_state) {
  */
 function draft_workflow_edit_revision_submit($form, &$form_state) {
   $form_state['values']['revision'] = 0;
+}
+
+/**
+ * Form #process callback: hides the URL settings on draft revision forms.
+ *
+ * This runs after all form alter hooks, and before the child elements get
+ * their values, so the hidden settings keep their default values.
+ */
+function _draft_workflow_hide_path_settings($form, &$form_state) {
+  if (isset($form['path'])) {
+    $form['path']['#access'] = FALSE;
+  }
+  return $form;
 }
 
 /**
