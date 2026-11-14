@@ -146,6 +146,23 @@ function _draft_workflow_type_enabled($type) {
 }
 
 /**
+ * Returns the newest revision of a node that is newer than a given revision.
+ *
+ * @param Node $node
+ *   The node, loaded at the revision to compare against.
+ *
+ * @return int|false
+ *   The revision ID of the newest later revision, or FALSE if there is none.
+ */
+function _draft_workflow_latest_forward_revision(Node $node) {
+  $vid = db_query('SELECT MAX(vid) FROM {node_revision} WHERE nid = :nid AND vid > :vid', array(
+    ':nid' => $node->nid,
+    ':vid' => $node->vid,
+  ))->fetchField();
+  return $vid ? (int) $vid : FALSE;
+}
+
+/**
  * Settings form for the Draft Workflow module.
  *
  * Displays per-content-type workflow settings and module permissions in role
@@ -706,6 +723,27 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
     }
 
     $args = arg();
+
+    // On the regular edit form for existing content (always the current
+    // revision), warn if newer drafts exist. This is a form element rather
+    // than backdrop_set_message() so it is not queued again when the form is
+    // rebuilt on submit or by AJAX and shown on the next page.
+    if (!empty($node->nid) && empty($args[4])) {
+      $draft_vid = _draft_workflow_latest_forward_revision($node);
+      if ($draft_vid) {
+        $message = t('A newer draft of this @type exists. If you save a new revision here, the changes in that draft could be overlooked. <a href="@url">Edit the latest draft</a> instead.', array(
+          '@type' => node_type_get_name($node),
+          '@url' => url('node/' . $node->nid . '/revisions/' . $draft_vid . '/edit_revision'),
+        ));
+        $form['draft_workflow_forward_revision_notice'] = array(
+          '#markup' => theme('status_messages', array(
+            'messages' => array('warning' => array($message)),
+          )),
+          '#weight' => -100,
+        );
+      }
+    }
+
     if (!empty($args[4]) && in_array($args[4], ['new_revision', 'edit_revision'])) {
       // Hide publishing options for non-current revisions.
       $form['options']['#access'] = FALSE;
