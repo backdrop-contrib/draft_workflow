@@ -5,8 +5,68 @@
  */
 
 /**
+ * Implements hook_schema().
+ */
+function draft_workflow_schema() {
+  $schema['draft_workflow_review'] = _draft_workflow_review_table_schema();
+  return $schema;
+}
+
+/**
+ * Returns the schema for the {draft_workflow_review} table.
+ *
+ * Shared by hook_schema() and draft_workflow_update_1100(), so fresh installs
+ * and updated sites get the same table.
+ */
+function _draft_workflow_review_table_schema() {
+  return array(
+    'description' => 'Draft revisions that have been marked ready for review.',
+    'fields' => array(
+      'vid' => array(
+        'description' => 'The {node_revision}.vid of the draft.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'nid' => array(
+        'description' => 'The {node}.nid the draft belongs to.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'uid' => array(
+        'description' => 'The {users}.uid of the person who marked the draft ready for review.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'created' => array(
+        'description' => 'The Unix timestamp when the draft was marked ready for review.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'primary key' => array('vid'),
+    'indexes' => array(
+      'nid' => array('nid'),
+    ),
+  );
+}
+
+/**
  * Install the Pending Review view.
  */
 function draft_workflow_update_1000() {
   config_install_default_config('draft_workflow', 'views.view.draft_workflow_pending_review');
+}
+
+/**
+ * Add a table to record drafts that are ready for review.
+ */
+function draft_workflow_update_1100() {
+  if (!db_table_exists('draft_workflow_review')) {
+    db_create_table('draft_workflow_review', _draft_workflow_review_table_schema());
+  }
 }
