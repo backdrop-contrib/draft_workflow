@@ -715,6 +715,12 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
     $form['options']['#collapsed'] = TRUE;
     $form['revision_information']['#collapsed'] = FALSE;
 
+    // After saving a revision that is not current, show that revision rather
+    // than the current one.
+    if (isset($form['actions']['submit']['#submit'])) {
+      $form['actions']['submit']['#submit'][] = 'draft_workflow_node_form_draft_saved_submit';
+    }
+
     // If configured for this content type, pull revision information out of
     // the vertical tabs so it renders as a visible fieldset above them.
     if (config_get('node.type.' . $node->type, 'settings.draft_workflow_prominent_revisions')) {
@@ -816,6 +822,43 @@ function draft_workflow_new_revision_submit($form, &$form_state) {
  */
 function draft_workflow_edit_revision_submit($form, &$form_state) {
   $form_state['values']['revision'] = 0;
+}
+
+/**
+ * Submit handler for node forms, run after node_form_submit().
+ *
+ * When the saved revision is not the current one, replaces the "has been
+ * updated" message with one that says so, and redirects to the saved
+ * revision instead of the current one, if the person may view it.
+ */
+function draft_workflow_node_form_draft_saved_submit($form, &$form_state) {
+  if (empty($form_state['node']->nid) || $form_state['node']->isActiveRevision()) {
+    return;
+  }
+  $node = $form_state['node'];
+  $t_args = array(
+    '@type' => node_type_get_name($node),
+    '%title' => $node->title,
+  );
+
+  // Replace core's message, keeping any other status messages (such as the
+  // scheduled publishing message) as they are.
+  $core_message = t('@type %title has been updated.', $t_args);
+  $messages = backdrop_get_messages('status');
+  $replaced = FALSE;
+  foreach (isset($messages['status']) ? $messages['status'] : array() as $message) {
+    if ($message == $core_message && !$replaced) {
+      $message = t('Draft of @type %title has been saved. It is not yet the current revision.', $t_args);
+      $replaced = TRUE;
+    }
+    backdrop_set_message($message);
+  }
+
+  $path = 'node/' . $node->nid . '/revisions/' . $node->vid . '/view';
+  $item = menu_get_item($path);
+  if (!empty($item['access'])) {
+    $form_state['redirect'] = $path;
+  }
 }
 
 /**
