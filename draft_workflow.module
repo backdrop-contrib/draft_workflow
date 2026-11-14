@@ -937,6 +937,34 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       if (!user_access('administer nodes') && !user_access('publish draft workflow content')) {
         $form['options']['status']['#access'] = FALSE;
       }
+
+      // On the regular edit form for existing content, let people save their
+      // changes as a new draft instead of a new current revision, without
+      // going to the Revisions tab first. See draft_workflow_node_submit().
+      if (!empty($node->nid) && isset($form['revision_information']) && draft_workflow_revision_edit_access($node)) {
+        $form['revision_information']['save_as_draft'] = [
+          '#type' => 'checkbox',
+          '#title' => t('Save as a draft'),
+          '#description' => t('Save these changes as a new draft revision. The current revision stays as it is until the draft is made current.'),
+          '#default_value' => 0,
+          '#weight' => 5,
+        ];
+        $form['revision_information']['ready_for_review'] = [
+          '#type' => 'checkbox',
+          '#title' => t('Ready for review'),
+          '#description' => t('Mark this draft as ready to be reviewed.'),
+          '#default_value' => 0,
+          '#weight' => 6,
+          '#states' => [
+            'visible' => [
+              ':input[name="save_as_draft"]' => ['checked' => TRUE],
+            ],
+          ],
+        ];
+        // Publishing options and URL settings belong to the node, so they are
+        // hidden while "Save as a draft" is checked, as on the draft forms.
+        $form['#attached']['js'][] = backdrop_get_path('module', 'draft_workflow') . '/js/draft_workflow.save_as_draft.js';
+      }
     }
   }
 }
@@ -1043,6 +1071,15 @@ function draft_workflow_node_submit(Node $node, $form, &$form_state) {
       // the revision ID is known.
       $node->draft_workflow_ready_for_review = !empty($form_state['values']['ready_for_review']);
     }
+  }
+  elseif (!empty($node->nid) && !empty($form_state['values']['save_as_draft'])) {
+    // "Save as a draft" on the regular edit form: always save a new revision,
+    // and keep the current revision current. Published status belongs to the
+    // node, so keep the node's status, as on the draft forms.
+    $node->revision = TRUE;
+    $node->is_active_revision = FALSE;
+    $node->status = (int) db_query('SELECT status FROM {node} WHERE nid = :nid', [':nid' => $node->nid])->fetchField();
+    $node->draft_workflow_ready_for_review = !empty($form_state['values']['ready_for_review']);
   }
 
   // Update all the revisions to match the currently saved node.
