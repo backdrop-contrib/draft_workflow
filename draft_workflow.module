@@ -813,6 +813,20 @@ function draft_workflow_edit_revision_submit($form, &$form_state) {
 }
 
 /**
+ * Implements hook_node_presave().
+ */
+function draft_workflow_node_presave(Node $node) {
+  // The URL alias belongs to the node and should follow the current revision.
+  // When saving a revision that is not current, remove the path data so that
+  // path_entity_update() leaves the existing alias alone instead of
+  // regenerating it from the draft's title. The alias is updated when the
+  // draft is made current.
+  if (!empty($node->nid) && !$node->isActiveRevision()) {
+    unset($node->path);
+  }
+}
+
+/**
  * Implements hook_node_submit().
  */
 function draft_workflow_node_submit(Node $node, $form, &$form_state) {
