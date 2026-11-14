@@ -824,6 +824,14 @@ function draft_workflow_node_submit(Node $node, $form, &$form_state) {
     elseif ($args[4] == 'edit_revision' && !empty($form_state['values']['make_current'])) {
       $node->is_active_revision = TRUE;
     }
+
+    // The publishing options are hidden on these forms, so the submitted
+    // status is the edited revision's stored status, which can be out of date
+    // (for example if the node was published in code). Published status
+    // belongs to the node, so take it from the node table instead.
+    if (in_array($args[4], ['new_revision', 'edit_revision'])) {
+      $node->status = (int) db_query('SELECT status FROM {node} WHERE nid = :nid', [':nid' => $node->nid])->fetchField();
+    }
   }
 
   // Update all the revisions to match the currently saved node.
