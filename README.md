@@ -95,21 +95,27 @@ draft is made current, or when a newer revision becomes current (for example a s
 the Edit tab, a revert, or another draft made current), since the draft has then been
 overtaken.
 
-Pending Review view
--------------------
+Lists of drafts
+---------------
 
-The module provides a **Pending Review** view at `admin/content/drafts` (also
-available as a tab alongside the main Content list). It shows all nodes that have
-draft revisions newer than the currently published revision, along with the latest
-draft note left by an editor, and a **Review** column for content with a draft that
-is ready for review.
+The module provides two lists, each shown as a tab on the **Content** page:
 
-The view can also be filtered by **Has a draft ready for review**. On sites that
-installed the module before this column was added, the view is not changed
-automatically: add the "Ready for review" field in the Views UI if you want it.
+- **Drafts** (`admin/content/drafts`): all content with drafts newer than the current
+  revision, with the latest draft note, and a **Review** column for content with a
+  draft that is ready for review.
+- **Ready for review** (`admin/content/ready-for-review`): only content with a draft
+  that is marked ready for review.
 
-A **Pending Review block** is also available. Add it to a dashboard or admin layout
-to show a quick count of content awaiting review, with a link to the full list.
+Both are views, so a site can turn either one off, or change it, in the Views UI
+(**Admin > Structure > Views**). The settings page shows which ones are enabled. Each
+list has a matching block, **Drafts** and **Ready for review**, with a count and a link
+to the list. Add them to a dashboard or admin layout. The lists and blocks need the
+_View pending draft revisions_ permission.
+
+On sites that installed the module before these lists were renamed, the Drafts list
+is still called **Pending Review**, and has no **Review** column: views are not changed
+automatically, since sites may have changed them. Add the "Ready for review" field in
+the Views UI if you want it. The **Ready for review** list is added by `update.php`.
 
 Configuration
 -------------
@@ -137,7 +143,7 @@ The module defines four permissions that allow you to separate editorial roles:
 | **Create draft revisions** | Create new draft revisions and edit existing draft revisions. |
 | **Activate draft revisions** | Make a draft revision current on an **unpublished** node. |
 | **Publish and unpublish content** | Publish and unpublish nodes; also required to activate revisions on already-published nodes, since doing so changes what is publicly visible. |
-| **View pending draft revisions** | Access the Pending Review view and dashboard block. |
+| **View pending draft revisions** | See the Drafts and Ready for review lists and their blocks. |
 
 Core's _Administer content_ permission allows all of these actions, whatever these
 permissions are set to. The settings page names the roles that have it. Give it only

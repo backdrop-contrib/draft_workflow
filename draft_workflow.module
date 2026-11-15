@@ -22,7 +22,7 @@ function draft_workflow_permission() {
     ),
     'view pending draft revisions' => array(
       'title' => t('View pending draft revisions'),
-      'description' => t('View the list of content with draft revisions pending review.'),
+      'description' => t('View the lists of drafts and of drafts ready for review, and their blocks.'),
     ),
   );
 }
@@ -431,6 +431,40 @@ function theme_draft_workflow_settings_form($variables) {
     'rows' => $ct_rows,
     'attributes' => array('id' => 'draft-workflow-content-types'),
   ));
+
+  // The lists of drafts are views: say where they are, and whether each one
+  // is enabled. Sites turn them on or off in the Views UI.
+  $list_items = array();
+  $lists = array(
+    'draft_workflow_pending_review' => t('All content with drafts'),
+    'draft_workflow_ready_for_review' => t('Content with a draft ready for review'),
+  );
+  foreach ($lists as $view_name => $description) {
+    $view = views_get_view($view_name);
+    if (!$view) {
+      continue;
+    }
+    $label = check_plain($view->human_name);
+    if (empty($view->disabled) && isset($view->display['page']->display_options['path'])) {
+      $label = l($view->human_name, $view->display['page']->display_options['path']);
+      $status = t('enabled');
+    }
+    else {
+      $status = t('disabled');
+    }
+    $list_items[] = t('!label: @description (@status).', array(
+      '!label' => $label,
+      '@description' => $description,
+      '@status' => $status,
+    ));
+  }
+  if ($list_items) {
+    $output .= '<h2>' . t('Lists of drafts') . '</h2>';
+    $output .= theme('item_list', array('items' => $list_items));
+    $output .= '<p>' . t('Each list is a view, shown as a tab on the Content page, with a matching block. Turn a list on or off, or change it, on the <a href="!url">Views</a> page.', array(
+      '!url' => url('admin/structure/views'),
+    )) . '</p>';
+  }
 
   $output .= backdrop_render_children($form);
 
@@ -1482,8 +1516,13 @@ function _draft_workflow_is_ready_for_review($vid) {
 function draft_workflow_block_info() {
   return array(
     'pending_review' => array(
-      'info' => t('Pending Review'),
-      'description' => t('Displays a count of nodes that have revisions pending review, with a link to the full list.'),
+      'info' => t('Drafts'),
+      'description' => t('Displays a count of content with drafts newer than the current revision, with a link to the list of drafts.'),
+      'cache' => BACKDROP_NO_CACHE,
+    ),
+    'ready_for_review' => array(
+      'info' => t('Ready for review'),
+      'description' => t('Displays a count of content with a draft that is ready for review, with a link to the list.'),
       'cache' => BACKDROP_NO_CACHE,
     ),
   );
@@ -1493,26 +1532,34 @@ function draft_workflow_block_info() {
  * Implements hook_block_view().
  */
 function draft_workflow_block_view($delta = '') {
-  if ($delta == 'pending_review' && user_access('view pending draft revisions')) {
-    $count = db_query('SELECT COUNT(*) FROM {node} n WHERE EXISTS (SELECT 1 FROM {node_revision} nr WHERE nr.nid = n.nid AND nr.vid > n.vid)')->fetchField();
-
-    if ($count == 0) {
-      $content = t('No content has revisions pending review.');
-    }
-    else {
-      $content = format_plural(
-        $count,
-        '1 item has revisions pending review. !link',
-        '@count items have revisions pending review. !link',
-        array('!link' => l(t('View all'), 'admin/content/drafts'))
-      );
-    }
-
-    return array(
-      'subject' => t('Pending Review'),
-      'content' => array('#markup' => $content),
-    );
+  if (!user_access('view pending draft revisions')) {
+    return NULL;
   }
+  if ($delta == 'pending_review') {
+    $count = db_query('SELECT COUNT(*) FROM {node} n WHERE EXISTS (SELECT 1 FROM {node_revision} nr WHERE nr.nid = n.nid AND nr.vid > n.vid)')->fetchField();
+    $content = $count ? format_plural($count, '1 item has drafts.', '@count items have drafts.') : t('No content has drafts.');
+    $path = 'admin/content/drafts';
+    $subject = t('Drafts');
+  }
+  elseif ($delta == 'ready_for_review') {
+    $count = db_query('SELECT COUNT(*) FROM {node} n WHERE EXISTS (SELECT 1 FROM {draft_workflow_review} dwr WHERE dwr.nid = n.nid AND dwr.vid > n.vid)')->fetchField();
+    $content = $count ? format_plural($count, '1 item has a draft ready for review.', '@count items have a draft ready for review.') : t('No drafts are ready for review.');
+    $path = 'admin/content/ready-for-review';
+    $subject = t('Ready for review');
+  }
+  else {
+    return NULL;
+  }
+
+  // Link to the list, unless its view has been disabled.
+  $item = menu_get_item($path);
+  if ($count && !empty($item['access'])) {
+    $content .= ' ' . l(t('View all'), $path);
+  }
+  return array(
+    'subject' => $subject,
+    'content' => array('#markup' => $content),
+  );
 }
 
 /**

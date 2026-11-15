@@ -1,13 +1,13 @@
 {
     "_config_name": "views.view.draft_workflow_pending_review",
     "name": "draft_workflow_pending_review",
-    "description": "Lists nodes that have draft revisions newer than the current active revision.",
+    "description": "Lists content that has draft revisions newer than the current revision.",
     "module": "draft_workflow",
     "storage": 4,
     "tag": "draft_workflow",
     "disabled": false,
     "base_table": "node",
-    "human_name": "Pending Review",
+    "human_name": "Drafts",
     "core": "1.0",
     "display": {
         "default": {
@@ -306,7 +306,7 @@
                         "order": "DESC"
                     }
                 },
-                "title": "Pending Review",
+                "title": "Drafts",
                 "header": {
                     "area_text_custom": {
                         "id": "area_text_custom",
@@ -317,7 +317,7 @@
                         "ui_name": "",
                         "label": "",
                         "empty": false,
-                        "content": "These nodes have revisions that are ahead of the current (public) version.",
+                        "content": "This content has drafts that are newer than the current (public) revision.",
                         "tokenize": 0
                     }
                 },
@@ -331,7 +331,7 @@
                         "ui_name": "",
                         "label": "",
                         "empty": true,
-                        "content": "No content has revisions pending review.",
+                        "content": "No content has drafts.",
                         "tokenize": 0
                     }
                 },
@@ -420,7 +420,7 @@
                 "path": "admin/content/drafts",
                 "menu": {
                     "type": "tab",
-                    "title": "Pending Review",
+                    "title": "Drafts",
                     "description": "",
                     "name": "management",
                     "weight": "10",

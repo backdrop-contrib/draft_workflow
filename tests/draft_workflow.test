@@ -422,6 +422,35 @@ class DraftWorkflowReviewTestCase extends DraftWorkflowTestBase {
   }
 
   /**
+   * The Drafts and Ready for review lists, and their blocks.
+   */
+  public function testLists() {
+    $ready = $this->backdropCreateNode(array('type' => 'page', 'title' => 'Ready page', 'status' => NODE_PUBLISHED));
+    $unmarked = $this->backdropCreateNode(array('type' => 'page', 'title' => 'Unmarked page', 'status' => NODE_PUBLISHED));
+    $this->backdropLogin($this->admin);
+    $this->backdropPost('node/' . $ready->nid . '/revisions/' . $ready->vid . '/new_revision', array('ready_for_review' => TRUE), t('Save'));
+    $this->backdropPost('node/' . $unmarked->nid . '/revisions/' . $unmarked->vid . '/new_revision', array(), t('Save'));
+
+    $this->backdropLogin($this->backdropCreateUser(array('access content', 'view pending draft revisions', 'access content overview')));
+    $this->backdropGet('admin/content/drafts');
+    $this->assertText('Ready page', 'The Drafts list shows content with a marked draft.');
+    $this->assertText('Unmarked page', 'The Drafts list shows content with an unmarked draft.');
+    $this->backdropGet('admin/content/ready-for-review');
+    $this->assertResponse(200);
+    $this->assertText('Ready page', 'The Ready for review list shows content with a marked draft.');
+    $this->assertNoText('Unmarked page', 'The Ready for review list does not show unmarked drafts.');
+
+    $block = draft_workflow_block_view('ready_for_review');
+    $this->assertTrue(strpos($block['content']['#markup'], '1 item has a draft ready for review.') === 0, 'The Ready for review block counts marked drafts only.');
+    $block = draft_workflow_block_view('pending_review');
+    $this->assertTrue(strpos($block['content']['#markup'], '2 items have drafts.') === 0, 'The Drafts block counts all drafts.');
+
+    $this->backdropLogin($this->backdropCreateUser(array('access content', 'access content overview')));
+    $this->backdropGet('admin/content/ready-for-review');
+    $this->assertResponse(403, 'The list needs the View pending draft revisions permission.');
+  }
+
+  /**
    * The update removes marks left on drafts older than the current revision.
    */
   public function testUpdateRemovesOvertakenMarks() {
