@@ -697,9 +697,10 @@ function draft_workflow_activate_confirm_submit($form, &$form_state) {
   $node_revision->setIsActiveRevision();
   $node_revision->save();
 
-  backdrop_set_message(t('@type %title has been set as the current revision.', array(
-    '@type' => node_type_get_name($node_revision),
-    '%title' => $node_revision->title,
+  // The page title already shows the content's title, so name the revision
+  // by its date, as listed in the revisions table.
+  backdrop_set_message(t('The revision from %date is now the current revision.', array(
+    '%date' => format_date($node_revision->revision_timestamp, 'short'),
   )));
   $form_state['redirect'] = 'node/' . $node_revision->nid . '/revisions';
 }
