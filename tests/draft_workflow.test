@@ -368,6 +368,8 @@ class DraftWorkflowReviewTestCase extends DraftWorkflowTestBase {
 
     $draft_vid = (int) db_query('SELECT MAX(vid) FROM {node_revision} WHERE nid = :nid', array(':nid' => $node->nid))->fetchField();
     $this->assertTrue(_draft_workflow_is_ready_for_review($draft_vid), 'The draft is marked ready for review.');
+    $this->assertText('has been saved and is marked ready for review.', 'The message says the draft is marked ready for review.');
+    $this->assertText('1 reviewer was emailed.', 'The message says a reviewer was emailed.');
 
     $mails = $this->backdropGetMails(array('id' => 'draft_workflow_review_requested'));
     $this->assertEqual(count($mails), 1, 'One reviewer email was sent.');
@@ -376,6 +378,17 @@ class DraftWorkflowReviewTestCase extends DraftWorkflowTestBase {
     // Saving again while still marked does not send another email.
     $this->backdropPost('node/' . $node->nid . '/revisions/' . $draft_vid . '/edit_revision', array('ready_for_review' => TRUE), t('Save'));
     $this->assertEqual(count($this->backdropGetMails(array('id' => 'draft_workflow_review_requested'))), 1, 'Saving the marked draft again does not email reviewers again.');
+    $this->assertText('has been saved and is marked ready for review.', 'The message says the draft is still marked.');
+    $this->assertNoText('was emailed', 'The message does not mention an email that was not sent.');
+
+    // Without the module's emails, the message does not mention any.
+    config_set('node.type.page', 'settings.draft_workflow_notify', FALSE);
+    $this->backdropPost('node/' . $node->nid . '/revisions/' . $draft_vid . '/edit_revision', array('ready_for_review' => FALSE), t('Save'));
+    $this->assertText('It is not yet the current revision.', 'The draft was saved.');
+    $this->assertNoText('marked ready for review', 'An unmarked draft is not called ready for review.');
+    $this->backdropPost('node/' . $node->nid . '/revisions/' . $draft_vid . '/edit_revision', array('ready_for_review' => TRUE), t('Save'));
+    $this->assertText('has been saved and is marked ready for review.', 'The message says the draft is marked again.');
+    $this->assertNoText('was emailed', 'No email is mentioned when the module sends none.');
 
     $this->backdropGet('node/' . $node->nid . '/revisions');
     $this->assertText(t('Ready for review'), 'The Revisions tab shows the ready for review marker.');

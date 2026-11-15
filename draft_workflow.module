@@ -1201,7 +1201,15 @@ function draft_workflow_node_form_draft_saved_submit($form, &$form_state) {
   $replaced = FALSE;
   foreach (isset($messages['status']) ? $messages['status'] : array() as $message) {
     if ($message == $core_message && !$replaced) {
-      $message = t('Draft of @type %title has been saved. It is not yet the current revision.', $t_args);
+      if (!empty($node->draft_workflow_ready_for_review)) {
+        $message = t('Draft of @type %title has been saved and is marked ready for review. It is not yet the current revision.', $t_args);
+        if (!empty($node->draft_workflow_reviewers_emailed)) {
+          $message .= ' ' . format_plural($node->draft_workflow_reviewers_emailed, '1 reviewer was emailed.', '@count reviewers were emailed.');
+        }
+      }
+      else {
+        $message = t('Draft of @type %title has been saved. It is not yet the current revision.', $t_args);
+      }
       $replaced = TRUE;
     }
     backdrop_set_message($message);
@@ -1351,7 +1359,9 @@ function draft_workflow_node_update(Node $node) {
       ))
       ->execute();
     module_invoke_all('draft_workflow_review_requested', $node, $user);
-    _draft_workflow_notify_reviewers($node, $user);
+    // Shown in the "draft saved" message, see
+    // draft_workflow_node_form_draft_saved_submit().
+    $node->draft_workflow_reviewers_emailed = _draft_workflow_notify_reviewers($node, $user);
     if (module_exists('rules')) {
       rules_invoke_event('draft_workflow_review_requested', $node, $user);
     }
@@ -1369,17 +1379,20 @@ function draft_workflow_node_update(Node $node) {
  *   The node, at the draft revision that is ready for review.
  * @param object $account
  *   The person who marked the draft ready for review.
+ *
+ * @return int
+ *   The number of reviewers emailed.
  */
 function _draft_workflow_notify_reviewers(Node $node, $account) {
   if (!config_get('node.type.' . $node->type, 'settings.draft_workflow_notify')) {
-    return;
+    return 0;
   }
   $roles = array_intersect(
     (array) config_get('node.type.' . $node->type, 'settings.draft_workflow_reviewer_roles'),
     array_keys(_draft_workflow_reviewer_role_options())
   );
   if (empty($roles)) {
-    return;
+    return 0;
   }
 
   $uids = db_query('SELECT DISTINCT u.uid FROM {users} u INNER JOIN {users_roles} ur ON ur.uid = u.uid WHERE ur.role IN (:roles) AND u.status = 1 AND u.uid <> :requester', array(
@@ -1387,16 +1400,21 @@ function _draft_workflow_notify_reviewers(Node $node, $account) {
     ':requester' => $account->uid,
   ))->fetchCol();
 
+  $sent = 0;
   foreach (user_load_multiple($uids) as $reviewer) {
     if (empty($reviewer->mail)) {
       continue;
     }
-    backdrop_mail('draft_workflow', 'review_requested', $reviewer->mail, user_preferred_language($reviewer), array(
+    $message = backdrop_mail('draft_workflow', 'review_requested', $reviewer->mail, user_preferred_language($reviewer), array(
       'node' => $node,
       'requester' => $account,
       'reviewer' => $reviewer,
     ));
+    if (!empty($message['result'])) {
+      $sent++;
+    }
   }
+  return $sent;
 }
 
 /**
