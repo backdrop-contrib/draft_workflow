@@ -162,10 +162,14 @@ When enabled, the revision information fieldset will appear above the sidebar ta
 on all editing forms for that content type, making it immediately visible without
 requiring an extra click.
 
+This setting also works for content types that don't use the draft workflow. It is
+shown when **Enable option to create revisions** is checked.
+
 ### Email reviewers
 
 The module can email reviewers when a draft is marked ready for review. This is set
-for each content type:
+for each content type that uses the draft workflow (the setting is shown when
+**Enable draft workflow** is checked):
 
 1. Go to **Admin > Structure > Content Types** and click **Edit** for the content type.
 2. Open the **Revision settings** tab.
