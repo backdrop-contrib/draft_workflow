@@ -371,6 +371,16 @@ function theme_draft_workflow_settings_form($variables) {
       'rows' => $perm_rows,
       'attributes' => array('id' => 'draft-workflow-permissions'),
     ));
+
+    // "Administer content" allows all of these actions, whatever the table
+    // shows, so say which roles have it.
+    $admin_roles = user_roles(FALSE, 'administer nodes');
+    if ($admin_roles) {
+      $output .= '<p class="description">' . format_plural(count($admin_roles),
+        'The %roles role has the <em>Administer content</em> permission, so it can do all of these actions, even where the table shows them unchecked.',
+        'The %roles roles have the <em>Administer content</em> permission, so they can do all of these actions, even where the table shows them unchecked.',
+        array('%roles' => implode(', ', $admin_roles))) . '</p>';
+    }
   }
 
   // --- Content type settings table ---

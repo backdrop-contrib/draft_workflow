@@ -132,6 +132,10 @@ The module defines four permissions that allow you to separate editorial roles:
 | **Publish and unpublish content** | Publish and unpublish nodes; also required to activate revisions on already-published nodes, since doing so changes what is publicly visible. |
 | **View pending draft revisions** | Access the Pending Review view and dashboard block. |
 
+Core's _Administer content_ permission allows all of these actions, whatever these
+permissions are set to. The settings page names the roles that have it. Give it only
+to roles that should be able to publish.
+
 A typical two-role setup might look like:
 
 - **Editor**: Grant _Create draft revisions_ and _View pending draft revisions_.
