@@ -22,7 +22,7 @@ function draft_workflow_permission() {
     ),
     'view pending draft revisions' => array(
       'title' => t('View pending draft revisions'),
-      'description' => t('View the list of content with draft revisions pending review.'),
+      'description' => t('View the lists of drafts and of drafts ready for review, and their blocks.'),
     ),
   );
 }
@@ -202,6 +202,19 @@ function _draft_workflow_sync_revision_status($nid) {
  */
 function draft_workflow_publish_access(Node $node) {
   return _draft_workflow_type_enabled($node->type) && (user_access('administer nodes') || (node_access('update', $node) && user_access('publish draft workflow content')));
+}
+
+/**
+ * Returns the current revision ID of a node, from the node table.
+ *
+ * @param int $nid
+ *   The node ID.
+ *
+ * @return int
+ *   The current revision ID.
+ */
+function _draft_workflow_current_vid($nid) {
+  return (int) db_query('SELECT vid FROM {node} WHERE nid = :nid', array(':nid' => $nid))->fetchField();
 }
 
 /**
@@ -431,6 +444,40 @@ function theme_draft_workflow_settings_form($variables) {
     'rows' => $ct_rows,
     'attributes' => array('id' => 'draft-workflow-content-types'),
   ));
+
+  // The lists of drafts are views: say where they are, and whether each one
+  // is enabled. Sites turn them on or off in the Views UI.
+  $list_items = array();
+  $lists = array(
+    'draft_workflow_pending_review' => t('All content with drafts'),
+    'draft_workflow_ready_for_review' => t('Content with a draft ready for review'),
+  );
+  foreach ($lists as $view_name => $description) {
+    $view = views_get_view($view_name);
+    if (!$view) {
+      continue;
+    }
+    $label = check_plain($view->human_name);
+    if (empty($view->disabled) && isset($view->display['page']->display_options['path'])) {
+      $label = l($view->human_name, $view->display['page']->display_options['path']);
+      $status = t('enabled');
+    }
+    else {
+      $status = t('disabled');
+    }
+    $list_items[] = t('!label: @description (@status).', array(
+      '!label' => $label,
+      '@description' => $description,
+      '@status' => $status,
+    ));
+  }
+  if ($list_items) {
+    $output .= '<h2>' . t('Lists of drafts') . '</h2>';
+    $output .= theme('item_list', array('items' => $list_items));
+    $output .= '<p>' . t('Each list is a view, shown as a tab on the Content page, with a matching block. Turn a list on or off, or change it, on the <a href="!url">Views</a> page.', array(
+      '!url' => url('admin/structure/views'),
+    )) . '</p>';
+  }
 
   $output .= backdrop_render_children($form);
 
@@ -1102,6 +1149,9 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
         '#title' => t('Ready for review'),
         '#description' => t('Mark this draft as ready to be reviewed.'),
         '#default_value' => ($mode == 'edit_revision') ? (int) _draft_workflow_is_ready_for_review($node->vid) : 0,
+        // Only drafts newer than the current revision can be ready for review:
+        // older revisions, and the current one, are not drafts.
+        '#access' => $mode == 'new_revision' || $node->vid > $current_node->vid,
         '#states' => [
           'invisible' => [
             ':input[name="make_current"]' => ['checked' => TRUE],
@@ -1201,7 +1251,15 @@ function draft_workflow_node_form_draft_saved_submit($form, &$form_state) {
   $replaced = FALSE;
   foreach (isset($messages['status']) ? $messages['status'] : array() as $message) {
     if ($message == $core_message && !$replaced) {
-      $message = t('Draft of @type %title has been saved. It is not yet the current revision.', $t_args);
+      if (!empty($node->draft_workflow_ready_for_review)) {
+        $message = t('Draft of @type %title has been saved and is marked ready for review. It is not yet the current revision.', $t_args);
+        if (!empty($node->draft_workflow_reviewers_emailed)) {
+          $message .= ' ' . format_plural($node->draft_workflow_reviewers_emailed, '1 reviewer was emailed.', '@count reviewers were emailed.');
+        }
+      }
+      else {
+        $message = t('Draft of @type %title has been saved. It is not yet the current revision.', $t_args);
+      }
       $replaced = TRUE;
     }
     backdrop_set_message($message);
@@ -1320,10 +1378,14 @@ function draft_workflow_node_update(Node $node) {
     _draft_workflow_sync_revision_status($node->nid);
   }
 
-  // A revision that is now current is no longer waiting for review.
+  // A revision that is now current is no longer waiting for review, and
+  // neither are older revisions: they were overtaken by the current one.
+  // Drafts newer than it keep their mark. A save on the Edit tab, a revert or
+  // a copy made current is the newest revision, so it clears all marks.
   if ($node->isActiveRevision()) {
     db_delete('draft_workflow_review')
-      ->condition('vid', $node->vid)
+      ->condition('nid', $node->nid)
+      ->condition('vid', $node->vid, '<=')
       ->execute();
     return;
   }
@@ -1331,6 +1393,11 @@ function draft_workflow_node_update(Node $node) {
   // Only the draft forms set this; saves from code leave the flag as it is.
   if (!isset($node->draft_workflow_ready_for_review)) {
     return;
+  }
+
+  // Only drafts newer than the current revision can be ready for review.
+  if ($node->draft_workflow_ready_for_review && $node->vid <= _draft_workflow_current_vid($node->nid)) {
+    $node->draft_workflow_ready_for_review = FALSE;
   }
 
   if (!$node->draft_workflow_ready_for_review) {
@@ -1351,7 +1418,9 @@ function draft_workflow_node_update(Node $node) {
       ))
       ->execute();
     module_invoke_all('draft_workflow_review_requested', $node, $user);
-    _draft_workflow_notify_reviewers($node, $user);
+    // Shown in the "draft saved" message, see
+    // draft_workflow_node_form_draft_saved_submit().
+    $node->draft_workflow_reviewers_emailed = _draft_workflow_notify_reviewers($node, $user);
     if (module_exists('rules')) {
       rules_invoke_event('draft_workflow_review_requested', $node, $user);
     }
@@ -1369,17 +1438,20 @@ function draft_workflow_node_update(Node $node) {
  *   The node, at the draft revision that is ready for review.
  * @param object $account
  *   The person who marked the draft ready for review.
+ *
+ * @return int
+ *   The number of reviewers emailed.
  */
 function _draft_workflow_notify_reviewers(Node $node, $account) {
   if (!config_get('node.type.' . $node->type, 'settings.draft_workflow_notify')) {
-    return;
+    return 0;
   }
   $roles = array_intersect(
     (array) config_get('node.type.' . $node->type, 'settings.draft_workflow_reviewer_roles'),
     array_keys(_draft_workflow_reviewer_role_options())
   );
   if (empty($roles)) {
-    return;
+    return 0;
   }
 
   $uids = db_query('SELECT DISTINCT u.uid FROM {users} u INNER JOIN {users_roles} ur ON ur.uid = u.uid WHERE ur.role IN (:roles) AND u.status = 1 AND u.uid <> :requester', array(
@@ -1387,16 +1459,21 @@ function _draft_workflow_notify_reviewers(Node $node, $account) {
     ':requester' => $account->uid,
   ))->fetchCol();
 
+  $sent = 0;
   foreach (user_load_multiple($uids) as $reviewer) {
     if (empty($reviewer->mail)) {
       continue;
     }
-    backdrop_mail('draft_workflow', 'review_requested', $reviewer->mail, user_preferred_language($reviewer), array(
+    $message = backdrop_mail('draft_workflow', 'review_requested', $reviewer->mail, user_preferred_language($reviewer), array(
       'node' => $node,
       'requester' => $account,
       'reviewer' => $reviewer,
     ));
+    if (!empty($message['result'])) {
+      $sent++;
+    }
   }
+  return $sent;
 }
 
 /**
@@ -1460,8 +1537,13 @@ function _draft_workflow_is_ready_for_review($vid) {
 function draft_workflow_block_info() {
   return array(
     'pending_review' => array(
-      'info' => t('Pending Review'),
-      'description' => t('Displays a count of nodes that have revisions pending review, with a link to the full list.'),
+      'info' => t('Drafts'),
+      'description' => t('Displays a count of content with drafts newer than the current revision, with a link to the list of drafts.'),
+      'cache' => BACKDROP_NO_CACHE,
+    ),
+    'ready_for_review' => array(
+      'info' => t('Ready for review'),
+      'description' => t('Displays a count of content with a draft that is ready for review, with a link to the list.'),
       'cache' => BACKDROP_NO_CACHE,
     ),
   );
@@ -1471,26 +1553,35 @@ function draft_workflow_block_info() {
  * Implements hook_block_view().
  */
 function draft_workflow_block_view($delta = '') {
-  if ($delta == 'pending_review' && user_access('view pending draft revisions')) {
-    $count = db_query('SELECT COUNT(*) FROM {node} n WHERE EXISTS (SELECT 1 FROM {node_revision} nr WHERE nr.nid = n.nid AND nr.vid > n.vid)')->fetchField();
-
-    if ($count == 0) {
-      $content = t('No content has revisions pending review.');
-    }
-    else {
-      $content = format_plural(
-        $count,
-        '1 item has revisions pending review. !link',
-        '@count items have revisions pending review. !link',
-        array('!link' => l(t('View all'), 'admin/content/drafts'))
-      );
-    }
-
-    return array(
-      'subject' => t('Pending Review'),
-      'content' => array('#markup' => $content),
-    );
+  if (!user_access('view pending draft revisions')) {
+    return NULL;
   }
+  if ($delta == 'pending_review') {
+    $count = db_query('SELECT COUNT(*) FROM {node} n WHERE EXISTS (SELECT 1 FROM {node_revision} nr WHERE nr.nid = n.nid AND nr.vid > n.vid)')->fetchField();
+    $content = $count ? format_plural($count, '1 item has drafts.', '@count items have drafts.') : t('No content has drafts.');
+    $path = 'admin/content/drafts';
+    $subject = t('Drafts');
+  }
+  elseif ($delta == 'ready_for_review') {
+    $count = db_query('SELECT COUNT(*) FROM {node} n WHERE EXISTS (SELECT 1 FROM {draft_workflow_review} dwr WHERE dwr.nid = n.nid AND dwr.vid > n.vid)')->fetchField();
+    $content = $count ? format_plural($count, '1 item has a draft ready for review.', '@count items have a draft ready for review.') : t('No drafts are ready for review.');
+    $path = 'admin/content/ready-for-review';
+    $subject = t('Ready for review');
+  }
+  else {
+    return NULL;
+  }
+
+  // Link to the list, unless its view has been disabled. menu_get_item()
+  // falls back to a parent path when the list's own path does not exist.
+  $item = menu_get_item($path);
+  if ($count && !empty($item['access']) && $item['path'] == $path) {
+    $content .= ' ' . l(t('View all'), $path);
+  }
+  return array(
+    'subject' => $subject,
+    'content' => array('#markup' => $content),
+  );
 }
 
 /**

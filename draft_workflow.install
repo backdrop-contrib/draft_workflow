@@ -107,3 +107,28 @@ function draft_workflow_update_1102() {
     $config->save();
   }
 }
+
+/**
+ * Remove "ready for review" marks from drafts older than the current revision.
+ *
+ * These drafts were overtaken by a newer current revision. From now on their
+ * marks are removed when that happens.
+ */
+function draft_workflow_update_1103() {
+  db_query('DELETE FROM {draft_workflow_review} WHERE vid <= (SELECT n.vid FROM {node} n WHERE n.nid = {draft_workflow_review}.nid)');
+}
+
+/**
+ * Add the "Ready for review" view.
+ *
+ * Lists content with a draft that is marked ready for review, at
+ * admin/content/ready-for-review. Disable it in the Views UI if it is not
+ * wanted. The existing Pending Review view is not changed.
+ */
+function draft_workflow_update_1104() {
+  if (!config('views.view.draft_workflow_ready_for_review')->isNew()) {
+    return;
+  }
+  config_install_default_config('draft_workflow', 'views.view.draft_workflow_ready_for_review');
+  views_invalidate_cache();
+}

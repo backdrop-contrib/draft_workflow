@@ -1,13 +1,13 @@
 {
     "_config_name": "views.view.draft_workflow_pending_review",
     "name": "draft_workflow_pending_review",
-    "description": "Lists nodes that have draft revisions newer than the current active revision.",
+    "description": "Lists content that has draft revisions newer than the current revision.",
     "module": "draft_workflow",
     "storage": 4,
     "tag": "draft_workflow",
     "disabled": false,
     "base_table": "node",
-    "human_name": "Pending Review",
+    "human_name": "Drafts",
     "core": "1.0",
     "display": {
         "default": {
@@ -156,9 +156,9 @@
                         "element_default_classes": 0,
                         "empty": "",
                         "hide_empty": 0,
-                        "empty_zero": 1,
+                        "empty_zero": 0,
                         "hide_alter_empty": 1,
-                        "type": "boolean",
+                        "type": "yes-no",
                         "type_custom_true": "Yes",
                         "type_custom_false": "No",
                         "not": 0
@@ -306,7 +306,7 @@
                         "order": "DESC"
                     }
                 },
-                "title": "Pending Review",
+                "title": "Drafts",
                 "header": {
                     "area_text_custom": {
                         "id": "area_text_custom",
@@ -317,7 +317,7 @@
                         "ui_name": "",
                         "label": "",
                         "empty": false,
-                        "content": "These nodes have revisions that are ahead of the current (public) version.",
+                        "content": "This content has drafts that are newer than the current (public) revision.",
                         "tokenize": 0
                     }
                 },
@@ -331,7 +331,7 @@
                         "ui_name": "",
                         "label": "",
                         "empty": true,
-                        "content": "No content has revisions pending review.",
+                        "content": "No content has drafts.",
                         "tokenize": 0
                     }
                 },
@@ -420,7 +420,7 @@
                 "path": "admin/content/drafts",
                 "menu": {
                     "type": "tab",
-                    "title": "Pending Review",
+                    "title": "Drafts",
                     "description": "",
                     "name": "management",
                     "weight": "10",
