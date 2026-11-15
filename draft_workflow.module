@@ -205,6 +205,19 @@ function draft_workflow_publish_access(Node $node) {
 }
 
 /**
+ * Returns the current revision ID of a node, from the node table.
+ *
+ * @param int $nid
+ *   The node ID.
+ *
+ * @return int
+ *   The current revision ID.
+ */
+function _draft_workflow_current_vid($nid) {
+  return (int) db_query('SELECT vid FROM {node} WHERE nid = :nid', array(':nid' => $nid))->fetchField();
+}
+
+/**
  * Returns whether the draft workflow is enabled for a given content type.
  *
  * The draft workflow is off unless it has been turned on for the content type.
@@ -1136,6 +1149,9 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
         '#title' => t('Ready for review'),
         '#description' => t('Mark this draft as ready to be reviewed.'),
         '#default_value' => ($mode == 'edit_revision') ? (int) _draft_workflow_is_ready_for_review($node->vid) : 0,
+        // Only drafts newer than the current revision can be ready for review:
+        // older revisions, and the current one, are not drafts.
+        '#access' => $mode == 'new_revision' || $node->vid > $current_node->vid,
         '#states' => [
           'invisible' => [
             ':input[name="make_current"]' => ['checked' => TRUE],
@@ -1363,9 +1379,9 @@ function draft_workflow_node_update(Node $node) {
   }
 
   // A revision that is now current is no longer waiting for review, and
-  // neither are older revisions: they were overtaken by the current one (for
-  // example by a save on the Edit tab, a revert, or another draft made
-  // current). Newer drafts keep their mark.
+  // neither are older revisions: they were overtaken by the current one.
+  // Drafts newer than it keep their mark. A save on the Edit tab, a revert or
+  // a copy made current is the newest revision, so it clears all marks.
   if ($node->isActiveRevision()) {
     db_delete('draft_workflow_review')
       ->condition('nid', $node->nid)
@@ -1377,6 +1393,11 @@ function draft_workflow_node_update(Node $node) {
   // Only the draft forms set this; saves from code leave the flag as it is.
   if (!isset($node->draft_workflow_ready_for_review)) {
     return;
+  }
+
+  // Only drafts newer than the current revision can be ready for review.
+  if ($node->draft_workflow_ready_for_review && $node->vid <= _draft_workflow_current_vid($node->nid)) {
+    $node->draft_workflow_ready_for_review = FALSE;
   }
 
   if (!$node->draft_workflow_ready_for_review) {
@@ -1551,9 +1572,10 @@ function draft_workflow_block_view($delta = '') {
     return NULL;
   }
 
-  // Link to the list, unless its view has been disabled.
+  // Link to the list, unless its view has been disabled. menu_get_item()
+  // falls back to a parent path when the list's own path does not exist.
   $item = menu_get_item($path);
-  if ($count && !empty($item['access'])) {
+  if ($count && !empty($item['access']) && $item['path'] == $path) {
     $content .= ' ' . l(t('View all'), $path);
   }
   return array(

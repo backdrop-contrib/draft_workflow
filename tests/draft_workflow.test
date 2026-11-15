@@ -451,6 +451,101 @@ class DraftWorkflowReviewTestCase extends DraftWorkflowTestBase {
   }
 
   /**
+   * Only drafts newer than the current revision can be marked.
+   */
+  public function testOnlyNewerDraftsMarked() {
+    $node = $this->backdropCreateNode(array('type' => 'page', 'status' => NODE_PUBLISHED));
+    $old_vid = $node->vid;
+    $node->revision = TRUE;
+    $node->save();
+
+    $this->backdropLogin($this->admin);
+    $this->backdropGet('node/' . $node->nid . '/revisions/' . $old_vid . '/edit_revision');
+    $this->assertNoFieldByName('ready_for_review', NULL, 'An older revision cannot be marked ready for review.');
+    $this->backdropGet('node/' . $node->nid . '/revisions/' . $node->vid . '/edit_revision');
+    $this->assertNoFieldByName('ready_for_review', NULL, 'The current revision cannot be marked ready for review.');
+
+    // Saves that try anyway (from code) do not mark it.
+    $old = node_load($node->nid, $old_vid, TRUE);
+    $old->draft_workflow_ready_for_review = TRUE;
+    $old->save();
+    $this->assertFalse(_draft_workflow_is_ready_for_review($old_vid), 'An older revision was not marked.');
+  }
+
+  /**
+   * "Save as a draft" on the Edit tab, and clearing by later saves.
+   */
+  public function testEditTabDraftAndClearing() {
+    $reviewer = $this->createEditor();
+    $roles = array_diff($reviewer->roles, array(BACKDROP_AUTHENTICATED_ROLE));
+    config_set('node.type.page', 'settings.draft_workflow_notify', TRUE);
+    config_set('node.type.page', 'settings.draft_workflow_reviewer_roles', array(reset($roles)));
+    $node = $this->backdropCreateNode(array('type' => 'page', 'status' => NODE_PUBLISHED));
+    $first_vid = $node->vid;
+    // A second current revision, so the first one can be reverted to.
+    $node->revision = TRUE;
+    $node->save();
+
+    $this->backdropLogin($this->admin);
+    $this->backdropPost('node/' . $node->nid . '/edit', array('save_as_draft' => TRUE, 'ready_for_review' => TRUE), t('Save'));
+    $draft_vid = (int) db_query('SELECT MAX(vid) FROM {node_revision} WHERE nid = :nid', array(':nid' => $node->nid))->fetchField();
+    $this->assertText('has been saved and is marked ready for review.', 'The Edit tab draft is marked ready for review.');
+    $this->assertText('1 reviewer was emailed.', 'The message counts the email.');
+    $this->assertTrue(_draft_workflow_is_ready_for_review($draft_vid), 'The draft is marked.');
+
+    // Reverting to the first revision creates a new current revision, which
+    // overtakes the draft.
+    $this->backdropPost('node/' . $node->nid . '/revisions/' . $first_vid . '/revert', array(), t('Revert'));
+    $this->assertTrue($this->currentVid($node->nid) > $draft_vid, 'The revert created a new current revision.');
+    $this->assertFalse(_draft_workflow_is_ready_for_review($draft_vid), 'The revert cleared the overtaken draft.');
+  }
+
+  /**
+   * The block does not link to a list whose view is disabled.
+   */
+  public function testDisabledList() {
+    $node = $this->backdropCreateNode(array('type' => 'page', 'status' => NODE_PUBLISHED));
+    $this->backdropLogin($this->admin);
+    $this->backdropPost('node/' . $node->nid . '/revisions/' . $node->vid . '/new_revision', array('ready_for_review' => TRUE), t('Save'));
+
+    $account = $this->backdropCreateUser(array('access content', 'view pending draft revisions', 'access content overview'));
+    $original = $GLOBALS['user'];
+    $GLOBALS['user'] = $account;
+    backdrop_static_reset('user_access');
+    $block = draft_workflow_block_view('ready_for_review');
+    $this->assertTrue(strpos($block['content']['#markup'], 'admin/content/ready-for-review') !== FALSE, 'The block links to the enabled list.');
+
+    config_set('views.view.draft_workflow_ready_for_review', 'disabled', TRUE);
+    views_invalidate_cache();
+    menu_rebuild();
+    backdrop_static_reset();
+    $GLOBALS['user'] = $account;
+    $block = draft_workflow_block_view('ready_for_review');
+    $this->assertTrue(strpos($block['content']['#markup'], '1 item has a draft ready for review.') === 0, 'The block still shows the count.');
+    $this->assertTrue(strpos($block['content']['#markup'], 'href') === FALSE, 'The block does not link to a disabled list.');
+    $GLOBALS['user'] = $original;
+    backdrop_static_reset('user_access');
+
+    $this->backdropLogin($this->backdropCreateUser(array('administer content types')));
+    $this->backdropGet('admin/config/content/draft-workflow');
+    $this->assertText('Content with a draft ready for review (disabled).', 'The settings page shows the list is disabled.');
+  }
+
+  /**
+   * The update adds the Ready for review view, without changing an existing one.
+   */
+  public function testUpdateAddsReadyView() {
+    config('views.view.draft_workflow_ready_for_review')->delete();
+    module_load_install('draft_workflow');
+    draft_workflow_update_1104();
+    $this->assertFalse(config('views.view.draft_workflow_ready_for_review')->isNew(), 'The update added the view.');
+
+    config_set('views.view.draft_workflow_ready_for_review', 'human_name', 'Changed by the site');
+    draft_workflow_update_1104();
+    $this->assertEqual(config_get('views.view.draft_workflow_ready_for_review', 'human_name'), 'Changed by the site', 'The update does not overwrite an existing view.');
+  }
+
+  /**
    * The update removes marks left on drafts older than the current revision.
    */
   public function testUpdateRemovesOvertakenMarks() {

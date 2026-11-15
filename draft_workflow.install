@@ -131,5 +131,4 @@ function draft_workflow_update_1104() {
   }
   config_install_default_config('draft_workflow', 'views.view.draft_workflow_ready_for_review');
   views_invalidate_cache();
-  menu_rebuild();
 }
