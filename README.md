@@ -25,8 +25,9 @@ There are two ways to start a draft:
 
 - **From the Edit tab:** open the **Revision information** section, check **Save as a
   draft**, and save. Your changes are saved as a new draft revision, and the current
-  revision stays as it is. While this box is checked, the publishing options and URL
-  settings are hidden, because they belong to the content as a whole, not to a draft.
+  revision stays as it is. While this box is checked, the publishing options, URL
+  settings and authoring information are hidden, because they belong to the content
+  as a whole, not to a draft.
   On published content, the Edit tab is only available to people with the _Publish
   and unpublish content_ permission (see Permissions below).
 - **From the Revisions tab:** use **Copy current revision**, or **Copy this revision**
@@ -46,9 +47,12 @@ can:
 - **View, edit, or copy any revision** using the action links in the revisions table.
 - **Make any revision the current revision** — the version site visitors will see.
 
-When editing or copying a non-current revision, the publishing options and URL
-settings are hidden to avoid confusion. Instead, a single "Make this the current
-revision" checkbox is available in the Revision information section.
+When editing or copying a non-current revision, the publishing options, URL settings
+and authoring information are hidden, because they belong to the content as a whole,
+not to a draft. Instead, a single "Make this the current revision" checkbox is
+available in the Revision information section. The draft form has no button that
+deletes the whole content: when editing a saved draft, **Delete this draft** deletes
+only that revision (this needs core's _Delete revisions_ permission).
 
 Good to know:
 
