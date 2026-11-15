@@ -107,3 +107,13 @@ function draft_workflow_update_1102() {
     $config->save();
   }
 }
+
+/**
+ * Remove "ready for review" marks from drafts older than the current revision.
+ *
+ * These drafts were overtaken by a newer current revision. From now on their
+ * marks are removed when that happens.
+ */
+function draft_workflow_update_1103() {
+  db_query('DELETE FROM {draft_workflow_review} WHERE vid <= (SELECT n.vid FROM {node} n WHERE n.nid = {draft_workflow_review}.nid)');
+}

@@ -88,10 +88,12 @@ Good to know:
 
 ### Ready for review
 
-When a draft is finished, check **Ready for review** when saving it (on the draft
-forms, or next to "Save as a draft" on the Edit tab). Drafts that are ready for review
-are marked on the Revisions tab. The mark is removed when the box is unchecked, or
-when the draft is made current.
+When a draft is finished, check **Ready for review** when saving it (on the draft forms,
+or next to "Save as a draft" on the Edit tab). Drafts that are ready for review are
+marked on the Revisions tab. The mark is removed when the box is unchecked, when the
+draft is made current, or when a newer revision becomes current (for example a save on
+the Edit tab, a revert, or another draft made current), since the draft has then been
+overtaken.
 
 Pending Review view
 -------------------

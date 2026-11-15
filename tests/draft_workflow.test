@@ -398,6 +398,52 @@ class DraftWorkflowReviewTestCase extends DraftWorkflowTestBase {
     $this->assertFalse(_draft_workflow_is_ready_for_review($draft_vid), 'Making the draft current clears the ready for review flag.');
   }
 
+  /**
+   * Making a newer revision current clears the marks on older drafts only.
+   */
+  public function testOvertakenDraftsCleared() {
+    $node = $this->backdropCreateNode(array('type' => 'page', 'status' => NODE_PUBLISHED));
+    $this->backdropLogin($this->admin);
+    // Two marked drafts.
+    $this->backdropPost('node/' . $node->nid . '/revisions/' . $node->vid . '/new_revision', array('ready_for_review' => TRUE), t('Save'));
+    $first = (int) db_query('SELECT MAX(vid) FROM {node_revision} WHERE nid = :nid', array(':nid' => $node->nid))->fetchField();
+    $this->backdropPost('node/' . $node->nid . '/revisions/' . $node->vid . '/new_revision', array('ready_for_review' => TRUE), t('Save'));
+    $second = (int) db_query('SELECT MAX(vid) FROM {node_revision} WHERE nid = :nid', array(':nid' => $node->nid))->fetchField();
+    $this->assertTrue($second > $first, 'Two drafts were saved.');
+
+    // Making the first draft current clears it, and keeps the newer mark.
+    $this->backdropPost('node/' . $node->nid . '/revisions/' . $first . '/activate', array(), t('Save'));
+    $this->assertFalse(_draft_workflow_is_ready_for_review($first), 'The draft made current is no longer marked.');
+    $this->assertTrue(_draft_workflow_is_ready_for_review($second), 'The newer draft keeps its mark.');
+
+    // A new current revision from the Edit tab overtakes the second draft.
+    $this->backdropPost('node/' . $node->nid . '/edit', array('revision' => TRUE), t('Save'));
+    $this->assertFalse(_draft_workflow_is_ready_for_review($second), 'A draft overtaken by a newer current revision is no longer marked.');
+  }
+
+  /**
+   * The update removes marks left on drafts older than the current revision.
+   */
+  public function testUpdateRemovesOvertakenMarks() {
+    $node = $this->backdropCreateNode(array('type' => 'page', 'status' => NODE_PUBLISHED));
+    $old_vid = $node->vid;
+    $node->revision = TRUE;
+    $node->save();
+    $draft = node_load($node->nid, NULL, TRUE);
+    $draft->revision = TRUE;
+    $draft->is_active_revision = FALSE;
+    $draft->save();
+    foreach (array($old_vid, $draft->vid) as $vid) {
+      db_insert('draft_workflow_review')
+        ->fields(array('vid' => $vid, 'nid' => $node->nid, 'uid' => 1, 'created' => REQUEST_TIME))
+        ->execute();
+    }
+    module_load_install('draft_workflow');
+    draft_workflow_update_1103();
+    $this->assertFalse(_draft_workflow_is_ready_for_review($old_vid), 'The mark on an older revision was removed.');
+    $this->assertTrue(_draft_workflow_is_ready_for_review($draft->vid), 'The mark on a newer draft was kept.');
+  }
+
 }
 
 /**

@@ -1328,10 +1328,14 @@ function draft_workflow_node_update(Node $node) {
     _draft_workflow_sync_revision_status($node->nid);
   }
 
-  // A revision that is now current is no longer waiting for review.
+  // A revision that is now current is no longer waiting for review, and
+  // neither are older revisions: they were overtaken by the current one (for
+  // example by a save on the Edit tab, a revert, or another draft made
+  // current). Newer drafts keep their mark.
   if ($node->isActiveRevision()) {
     db_delete('draft_workflow_review')
-      ->condition('vid', $node->vid)
+      ->condition('nid', $node->nid)
+      ->condition('vid', $node->vid, '<=')
       ->execute();
     return;
   }
