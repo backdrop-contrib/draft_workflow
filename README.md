@@ -27,8 +27,10 @@ There are two ways to start a draft:
   draft**, and save. Your changes are saved as a new draft revision, and the current
   revision stays as it is. While this box is checked, the publishing options and URL
   settings are hidden, because they belong to the content as a whole, not to a draft.
+  On published content, the Edit tab is only available to people with the _Publish
+  and unpublish content_ permission (see Permissions below).
 - **From the Revisions tab:** use **Copy current revision**, or **Copy this revision**
-  on any revision.
+  on any revision. This works for everyone who can create drafts.
 
 After saving a draft, you land on the draft itself, with a message saying it is not
 yet the current revision.
@@ -114,9 +116,10 @@ A typical two-role setup might look like:
 - **Publisher**: Grant all four permissions.
 
 > **Important:** Saving the regular edit form makes your changes the current, live
-> version. People without _Publish and unpublish content_ should check **Save as a
-> draft** when editing published content (or work from the **Revisions** tab), then
-> mark the draft ready for review for a publisher to make current.
+> version, so people without _Publish and unpublish content_ cannot open the Edit tab
+> of published content. They work from the **Revisions** tab instead: copy or edit a
+> draft revision, mark it ready for review, and leave it for a publisher to make
+> current.
 
 ### Make revision information more prominent
 
