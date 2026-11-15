@@ -275,6 +275,71 @@ class DraftWorkflowDraftTestCase extends DraftWorkflowTestBase {
     $this->assertEqual($alias, 'live-page', 'Saving a draft keeps the URL alias.');
   }
 
+  /**
+   * Draft forms delete only the draft, never the whole node.
+   */
+  public function testDraftFormDelete() {
+    list($nid, $live_vid, $draft_vid) = $this->createPageWithDraft();
+
+    $this->backdropLogin($this->admin);
+    $this->backdropGet("node/$nid/edit");
+    $this->assertLinkByHref("node/$nid/delete", 0, 'The Edit tab has the Delete button.');
+
+    $this->backdropGet("node/$nid/revisions/$draft_vid/edit_revision");
+    $this->assertLinkByHref("node/$nid/revisions/$draft_vid/delete", 0, 'A saved draft has a Delete this draft button.');
+    $this->assertLink(t('Delete this draft'));
+    $this->assertNoLinkByHref("node/$nid/delete", 'A saved draft has no button that deletes the node.');
+
+    $this->backdropGet("node/$nid/revisions/$live_vid/new_revision");
+    $this->assertNoLink(t('Delete this draft'), 'A copy that is not saved yet has no Delete this draft button.');
+    $this->assertNoLinkByHref("node/$nid/delete", 'A copy has no button that deletes the node.');
+
+    $this->backdropGet("node/$nid/revisions/$live_vid/edit_revision");
+    $this->assertNoLink(t('Delete this draft'), 'The current revision has no Delete this draft button.');
+    $this->assertNoLinkByHref("node/$nid/delete", 'Editing the current revision from the Revisions tab has no button that deletes the node.');
+
+    // Without core's "Delete revisions" permission there is no button.
+    $this->backdropLogin($this->createEditor(array('delete any page content')));
+    $this->backdropGet("node/$nid/revisions/$draft_vid/edit_revision");
+    $this->assertResponse(200);
+    $this->assertNoLink(t('Delete this draft'), 'Without the Delete revisions permission, a draft has no Delete this draft button.');
+    $this->assertNoLinkByHref("node/$nid/delete", 'Without the Delete revisions permission, a draft has no button that deletes the node.');
+
+    // The button deletes the draft and keeps the node.
+    $this->backdropLogin($this->admin);
+    $this->backdropGet("node/$nid/revisions/$draft_vid/edit_revision");
+    $this->clickLink(t('Delete this draft'));
+    $this->backdropPost(NULL, array(), t('Delete'));
+    $this->assertFalse(db_query('SELECT 1 FROM {node_revision} WHERE vid = :vid', array(':vid' => $draft_vid))->fetchField(), 'The draft was deleted.');
+    $this->assertEqual($this->currentVid($nid), $live_vid, 'The node and its current revision are kept.');
+  }
+
+  /**
+   * Draft forms hide authoring information, which belongs to the node.
+   */
+  public function testDraftFormHidesAuthoring() {
+    list($nid, $live_vid, $draft_vid) = $this->createPageWithDraft();
+    $node = node_load($nid, NULL, TRUE);
+
+    $this->backdropLogin($this->admin);
+    $this->backdropGet("node/$nid/edit");
+    $this->assertFieldByName('name', NULL, 'The Edit tab shows Authored by.');
+    $this->assertFieldByName('date[date]', NULL, 'The Edit tab shows Authored on.');
+
+    foreach (array("node/$nid/revisions/$draft_vid/edit_revision", "node/$nid/revisions/$live_vid/new_revision") as $path) {
+      $this->backdropGet($path);
+      $this->assertNoFieldByName('name', NULL, format_string('@path does not show Authored by.', array('@path' => $path)));
+      $this->assertNoFieldByName('date[date]', NULL, format_string('@path does not show Authored on.', array('@path' => $path)));
+    }
+
+    // Saving a draft still works, and keeps the node's author and date.
+    $this->backdropPost("node/$nid/revisions/$draft_vid/edit_revision", array('title' => 'Draft title edited'), t('Save'));
+    $this->assertEqual(node_load($nid, $draft_vid, TRUE)->title, 'Draft title edited', 'The draft was saved.');
+    $saved = db_query('SELECT uid, created FROM {node} WHERE nid = :nid', array(':nid' => $nid))->fetchObject();
+    $this->assertEqual($saved->uid, $node->uid, 'The author did not change.');
+    $this->assertEqual($saved->created, $node->created, 'The Authored on date did not change.');
+  }
+
 }
 
 /**
