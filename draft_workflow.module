@@ -738,16 +738,13 @@ function draft_workflow_unpublish_confirm_submit($form, &$form_state) {
  * Loads the node form for creating a new revision.
  */
 function draft_workflow_new_revision(Node $node) {
-  module_load_include('inc', 'node', 'node.pages');
-
   $type_name = node_type_get_name($node);
   backdrop_set_title(t('New revision of @type %title', array(
     '@type' => $type_name,
     '%title' => $node->title,
   )), PASS_THROUGH);
 
-  $form = backdrop_get_form($node->type . '_node_form', $node);
-  return $form;
+  return _draft_workflow_revision_form($node, 'new_revision');
 }
 
 
@@ -755,16 +752,51 @@ function draft_workflow_new_revision(Node $node) {
  * Loads the node form for editing an existing revision.
  */
 function draft_workflow_edit_revision(Node $node) {
-  module_load_include('inc', 'node', 'node.pages');
-
   $type_name = node_type_get_name($node);
   backdrop_set_title(t('Edit draft of @type %title', array(
     '@type' => $type_name,
     '%title' => $node->title,
   )), PASS_THROUGH);
 
-  $form = backdrop_get_form($node->type . '_node_form', $node);
-  return $form;
+  return _draft_workflow_revision_form($node, 'edit_revision');
+}
+
+/**
+ * Builds the node form for one of the draft forms.
+ *
+ * The form mode is kept in $form_state, and node.pages.inc is registered with
+ * form_load_include(), because both are needed again when the form is rebuilt
+ * from the form cache by an AJAX request (such as an image upload or "Add
+ * another item"). Those requests do not run this page callback, and arg()
+ * then holds the AJAX path, not the draft form's path.
+ *
+ * @param Node $node
+ *   The node, loaded at the revision to copy or edit.
+ * @param string $mode
+ *   'new_revision' or 'edit_revision'.
+ *
+ * @return array
+ *   The form render array.
+ */
+function _draft_workflow_revision_form(Node $node, $mode) {
+  $form_state = array();
+  $form_state['build_info']['args'] = array($node);
+  $form_state['draft_workflow_mode'] = $mode;
+  form_load_include($form_state, 'inc', 'node', 'node.pages');
+  return backdrop_build_form($node->type . '_node_form', $form_state);
+}
+
+/**
+ * Returns which draft form a node form is, if any.
+ *
+ * @param array $form_state
+ *   The node form's state.
+ *
+ * @return string|null
+ *   'new_revision' or 'edit_revision' on the draft forms, otherwise NULL.
+ */
+function _draft_workflow_form_mode(array $form_state) {
+  return isset($form_state['draft_workflow_mode']) ? $form_state['draft_workflow_mode'] : NULL;
 }
 
 /**
@@ -939,13 +971,13 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       $form['revision_information']['#weight'] = 98;
     }
 
-    $args = arg();
+    $mode = _draft_workflow_form_mode($form_state);
 
     // On the regular edit form for existing content (always the current
     // revision), warn if newer drafts exist. This is a form element rather
     // than backdrop_set_message() so it is not queued again when the form is
     // rebuilt on submit or by AJAX and shown on the next page.
-    if (!empty($node->nid) && empty($args[4])) {
+    if (!empty($node->nid) && !$mode) {
       $draft_vid = _draft_workflow_latest_forward_revision($node);
       if ($draft_vid) {
         $message = t('A newer draft of this @type exists. If you save a new revision here, the changes in that draft could be overlooked. <a href="@url">Edit the latest draft</a> instead.', array(
@@ -961,7 +993,7 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       }
     }
 
-    if (!empty($args[4]) && in_array($args[4], ['new_revision', 'edit_revision'])) {
+    if ($mode) {
       // Hide publishing options for non-current revisions.
       $form['options']['#access'] = FALSE;
 
@@ -983,7 +1015,7 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       // only this revision, when it is a saved draft (not the current
       // revision, and not a copy that has not been saved yet).
       unset($form['actions']['delete']);
-      if ($args[4] == 'edit_revision' && $node->vid != $current_node->vid && _node_revision_access($node, 'delete')) {
+      if ($mode == 'edit_revision' && $node->vid != $current_node->vid && _node_revision_access($node, 'delete')) {
         $form['actions']['delete'] = array(
           '#type' => 'link',
           '#title' => t('Delete this draft'),
@@ -1014,7 +1046,7 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
         '#type' => 'checkbox',
         '#title' => t('Ready for review'),
         '#description' => t('Mark this draft as ready to be reviewed.'),
-        '#default_value' => ($args[4] == 'edit_revision') ? (int) _draft_workflow_is_ready_for_review($node->vid) : 0,
+        '#default_value' => ($mode == 'edit_revision') ? (int) _draft_workflow_is_ready_for_review($node->vid) : 0,
         '#states' => [
           'invisible' => [
             ':input[name="make_current"]' => ['checked' => TRUE],
@@ -1022,7 +1054,7 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
         ],
       ];
 
-      if ($args[4] == 'new_revision') {
+      if ($mode == 'new_revision') {
         $form['revision_information']['revision']['#type'] = 'hidden';
         $form['revision_information']['revision']['#value'] = 1;
       }
@@ -1168,26 +1200,38 @@ function draft_workflow_node_presave(Node $node) {
  * Implements hook_node_submit().
  */
 function draft_workflow_node_submit(Node $node, $form, &$form_state) {
-  $args = arg();
-  if (!empty($args[4])) {
-    if ($args[4] == 'new_revision') {
+  $mode = _draft_workflow_form_mode($form_state);
+  if ($mode) {
+    // A copy is always saved as a new revision, and an edited draft always
+    // updates its own revision, whatever the submitted form values say.
+    if ($mode == 'new_revision') {
+      $node->revision = TRUE;
       $node->is_active_revision = !empty($form_state['values']['make_current']);
     }
-    elseif ($args[4] == 'edit_revision' && !empty($form_state['values']['make_current'])) {
-      $node->is_active_revision = TRUE;
+    else {
+      $node->revision = FALSE;
+      if (!empty($form_state['values']['make_current'])) {
+        $node->is_active_revision = TRUE;
+      }
     }
 
     // The publishing options are hidden on these forms, so the submitted
     // status is the edited revision's stored status, which can be out of date
     // (for example if the node was published in code). Published status
     // belongs to the node, so take it from the node table instead.
-    if (in_array($args[4], ['new_revision', 'edit_revision'])) {
-      $node->status = _draft_workflow_node_status($node->nid);
+    $node->status = _draft_workflow_node_status($node->nid);
 
-      // Saved to {draft_workflow_review} in draft_workflow_node_update(), once
-      // the revision ID is known.
-      $node->draft_workflow_ready_for_review = !empty($form_state['values']['ready_for_review']);
-    }
+    // Saved to {draft_workflow_review} in draft_workflow_node_update(), once
+    // the revision ID is known.
+    $node->draft_workflow_ready_for_review = !empty($form_state['values']['ready_for_review']);
+  }
+  elseif (empty($node->nid) && _draft_workflow_type_enabled($node->type) && !user_access('administer nodes') && !user_access('publish draft workflow content')) {
+    // New content from someone who may not publish: the publishing options
+    // are hidden from them (see draft_workflow_form_alter()), but the hidden
+    // status is the content type's default, which can be "Published". Save it
+    // unpublished, for a publisher to publish.
+    $node->status = NODE_NOT_PUBLISHED;
+    $node->scheduled = 0;
   }
   elseif (!empty($node->nid) && !empty($form_state['values']['save_as_draft'])) {
     // "Save as a draft" on the regular edit form: always save a new revision,

@@ -119,6 +119,10 @@ A typical two-role setup might look like:
 - **Editor**: Grant _Create draft revisions_ and _View pending draft revisions_.
 - **Publisher**: Grant all four permissions.
 
+New content created by people without _Publish and unpublish content_ is always saved
+unpublished, even when the content type is published by default. A publisher can then
+publish it from the Revisions tab.
+
 > **Important:** Saving the regular edit form makes your changes the current, live
 > version, so people without _Publish and unpublish content_ cannot open the Edit tab
 > of published content. They work from the **Revisions** tab instead: copy or edit a

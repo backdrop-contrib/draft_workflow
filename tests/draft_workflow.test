@@ -383,3 +383,91 @@ class DraftWorkflowReviewTestCase extends DraftWorkflowTestBase {
   }
 
 }
+
+/**
+ * Tests the draft forms after an AJAX rebuild, and new content.
+ *
+ * Uploading a file or adding another field item rebuilds the form over AJAX.
+ * The draft forms must still save a draft afterwards.
+ */
+class DraftWorkflowRebuildTestCase extends DraftWorkflowTestBase {
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function setUp() {
+    parent::setUp();
+    field_create_field(array(
+      'field_name' => 'field_notes',
+      'type' => 'text',
+      'cardinality' => FIELD_CARDINALITY_UNLIMITED,
+    ));
+    field_create_instance(array(
+      'field_name' => 'field_notes',
+      'entity_type' => 'node',
+      'bundle' => 'page',
+      'label' => 'Notes',
+      'widget' => array('type' => 'text_textfield'),
+    ));
+    // Revisions are enabled, but not created by default.
+    config_set('node.type.page', 'settings.revision_enabled', TRUE);
+    config_set('node.type.page', 'settings.revision_default', FALSE);
+  }
+
+  /**
+   * Copying a revision still saves a new draft after an AJAX rebuild.
+   */
+  public function testCopyAfterAjaxRebuild() {
+    list($nid, $live_vid, $draft_vid) = $this->createPageWithDraft();
+
+    $this->backdropLogin($this->createEditor());
+    $this->backdropGet("node/$nid/revisions/$live_vid/new_revision");
+    $this->assertResponse(200);
+    $this->backdropPostAJAX(NULL, array('title' => 'Copied title'), array('field_notes_add_more' => t('Add another')));
+    $this->backdropPost(NULL, array('title' => 'Copied title'), t('Save'));
+
+    $this->assertEqual($this->currentVid($nid), $live_vid, 'The current revision did not change.');
+    $live_title = db_query('SELECT title FROM {node_revision} WHERE vid = :vid', array(':vid' => $live_vid))->fetchField();
+    $this->assertEqual($live_title, 'Live title', 'The current revision was not overwritten.');
+    $latest = (int) db_query('SELECT MAX(vid) FROM {node_revision} WHERE nid = :nid', array(':nid' => $nid))->fetchField();
+    $this->assertTrue($latest > $draft_vid, 'The copy was saved as a new revision.');
+  }
+
+  /**
+   * Editing a draft keeps its Ready for review mark after an AJAX rebuild.
+   */
+  public function testEditDraftAfterAjaxRebuild() {
+    list($nid, $live_vid, $draft_vid) = $this->createPageWithDraft();
+    db_insert('draft_workflow_review')
+      ->fields(array('vid' => $draft_vid, 'nid' => $nid, 'uid' => 1, 'created' => REQUEST_TIME))
+      ->execute();
+
+    $this->backdropLogin($this->createEditor());
+    $this->backdropGet("node/$nid/revisions/$draft_vid/edit_revision");
+    $this->backdropPostAJAX(NULL, array('title' => 'Draft title edited'), array('field_notes_add_more' => t('Add another')));
+    $this->backdropPost(NULL, array('title' => 'Draft title edited'), t('Save'));
+
+    $this->assertEqual($this->currentVid($nid), $live_vid, 'The current revision did not change.');
+    $this->assertEqual(node_load($nid, $draft_vid, TRUE)->title, 'Draft title edited', 'The draft was updated in place.');
+    $this->assertTrue((bool) db_query('SELECT 1 FROM {draft_workflow_review} WHERE vid = :vid', array(':vid' => $draft_vid))->fetchField(), 'The draft is still ready for review.');
+  }
+
+  /**
+   * People without the publish permission cannot publish new content.
+   */
+  public function testNewContentNotPublished() {
+    config_set('node.type.page', 'settings.status_default', NODE_PUBLISHED);
+    $this->backdropLogin($this->createEditor(array('create page content')));
+    $this->backdropPost('node/add/page', array('title' => 'New page'), t('Save'));
+    $nid = (int) db_query("SELECT nid FROM {node} WHERE title = 'New page'")->fetchField();
+    $this->assertTrue($nid > 0, 'The page was created.');
+    $this->assertEqual($this->nodeStatus($nid), NODE_NOT_PUBLISHED, 'New content from someone without the publish permission is not published.');
+
+    // Publishers still get the content type's default.
+    $this->backdropLogin($this->createEditor(array('create page content', 'publish draft workflow content')));
+    $this->backdropPost('node/add/page', array('title' => 'Published page'), t('Save'));
+    $nid = (int) db_query("SELECT nid FROM {node} WHERE title = 'Published page'")->fetchField();
+    $this->assertEqual($this->nodeStatus($nid), NODE_PUBLISHED, 'New content from a publisher is published by default.');
+  }
+
+}
