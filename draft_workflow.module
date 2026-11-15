@@ -207,12 +207,18 @@ function draft_workflow_publish_access(Node $node) {
 /**
  * Returns whether the draft workflow is enabled for a given content type.
  *
- * Defaults to TRUE if the setting has not been configured, preserving
- * backward compatibility for existing installations.
+ * The draft workflow is off unless it has been turned on for the content type.
+ * Existing sites keep their earlier behaviour (on for every content type that
+ * had no saved setting): see draft_workflow_update_1102().
+ *
+ * @param string $type
+ *   The content type's machine name.
+ *
+ * @return bool
+ *   TRUE if the draft workflow is enabled.
  */
 function _draft_workflow_type_enabled($type) {
-  $value = config_get('node.type.' . $type, 'settings.draft_workflow_enabled');
-  return $value === NULL ? TRUE : (bool) $value;
+  return (bool) config_get('node.type.' . $type, 'settings.draft_workflow_enabled');
 }
 
 /**
@@ -360,6 +366,24 @@ function theme_draft_workflow_settings_form($variables) {
     $output .= '<p>' . t('Configure which roles have access to draft workflow actions. These permissions are also available on the main <a href="!url">Permissions</a> page.', array(
       '!url' => url('admin/config/people/permissions'),
     )) . '</p>';
+    // "Administer content" allows all of these actions, whatever the table
+    // shows, so warn about roles that have it but not all of these
+    // permissions.
+    $admin_roles = array();
+    foreach (user_roles(FALSE, 'administer nodes', TRUE) as $role_name => $role) {
+      if (array_diff(array_keys(draft_workflow_permission()), $role->permissions)) {
+        $admin_roles[$role_name] = $role->label;
+      }
+    }
+    if ($admin_roles) {
+      $warning = format_plural(count($admin_roles),
+        'The %roles role has the <em>Administer content</em> permission, so it can do all of these actions, including publishing and unpublishing, even where the table shows them unchecked.',
+        'The %roles roles have the <em>Administer content</em> permission, so they can do all of these actions, including publishing and unpublishing, even where the table shows them unchecked.',
+        array('%roles' => implode(', ', $admin_roles)));
+      $output .= theme('status_messages', array(
+        'messages' => array('warning' => array($warning)),
+      ));
+    }
     $output .= theme('table', array(
       'header' => $perm_header,
       'rows' => $perm_rows,
@@ -381,7 +405,7 @@ function theme_draft_workflow_settings_form($variables) {
   foreach (node_type_get_types() as $type_name => $type) {
     // Reviewer emails are set on the content type form; summarize them here.
     $notify_roles = array_intersect_key($role_options, array_flip((array) config_get('node.type.' . $type_name, 'settings.draft_workflow_reviewer_roles')));
-    $notify_on = config_get('node.type.' . $type_name, 'settings.draft_workflow_notify') && $notify_roles;
+    $notify_on = _draft_workflow_type_enabled($type_name) && config_get('node.type.' . $type_name, 'settings.draft_workflow_notify') && $notify_roles;
     $any_notify = $any_notify || $notify_on;
     $notify_summary = $notify_on ? implode(', ', $notify_roles) : t('Off');
     $notify_summary .= ' (' . l(t('change'), 'admin/structure/types/manage/' . str_replace('_', '-', $type_name)) . ')';
@@ -673,9 +697,10 @@ function draft_workflow_activate_confirm_submit($form, &$form_state) {
   $node_revision->setIsActiveRevision();
   $node_revision->save();
 
-  backdrop_set_message(t('@type %title has been set as the current revision.', array(
-    '@type' => node_type_get_name($node_revision),
-    '%title' => $node_revision->title,
+  // The page title already shows the content's title, so name the revision
+  // by its date, as listed in the revisions table.
+  backdrop_set_message(t('The revision from %date is now the current revision.', array(
+    '%date' => format_date($node_revision->revision_timestamp, 'short'),
   )));
   $form_state['redirect'] = 'node/' . $node_revision->nid . '/revisions';
 }
@@ -738,16 +763,13 @@ function draft_workflow_unpublish_confirm_submit($form, &$form_state) {
  * Loads the node form for creating a new revision.
  */
 function draft_workflow_new_revision(Node $node) {
-  module_load_include('inc', 'node', 'node.pages');
-
   $type_name = node_type_get_name($node);
   backdrop_set_title(t('New revision of @type %title', array(
     '@type' => $type_name,
     '%title' => $node->title,
   )), PASS_THROUGH);
 
-  $form = backdrop_get_form($node->type . '_node_form', $node);
-  return $form;
+  return _draft_workflow_revision_form($node, 'new_revision');
 }
 
 
@@ -755,16 +777,51 @@ function draft_workflow_new_revision(Node $node) {
  * Loads the node form for editing an existing revision.
  */
 function draft_workflow_edit_revision(Node $node) {
-  module_load_include('inc', 'node', 'node.pages');
-
   $type_name = node_type_get_name($node);
   backdrop_set_title(t('Edit draft of @type %title', array(
     '@type' => $type_name,
     '%title' => $node->title,
   )), PASS_THROUGH);
 
-  $form = backdrop_get_form($node->type . '_node_form', $node);
-  return $form;
+  return _draft_workflow_revision_form($node, 'edit_revision');
+}
+
+/**
+ * Builds the node form for one of the draft forms.
+ *
+ * The form mode is kept in $form_state, and node.pages.inc is registered with
+ * form_load_include(), because both are needed again when the form is rebuilt
+ * from the form cache by an AJAX request (such as an image upload or "Add
+ * another item"). Those requests do not run this page callback, and arg()
+ * then holds the AJAX path, not the draft form's path.
+ *
+ * @param Node $node
+ *   The node, loaded at the revision to copy or edit.
+ * @param string $mode
+ *   'new_revision' or 'edit_revision'.
+ *
+ * @return array
+ *   The form render array.
+ */
+function _draft_workflow_revision_form(Node $node, $mode) {
+  $form_state = array();
+  $form_state['build_info']['args'] = array($node);
+  $form_state['draft_workflow_mode'] = $mode;
+  form_load_include($form_state, 'inc', 'node', 'node.pages');
+  return backdrop_build_form($node->type . '_node_form', $form_state);
+}
+
+/**
+ * Returns which draft form a node form is, if any.
+ *
+ * @param array $form_state
+ *   The node form's state.
+ *
+ * @return string|null
+ *   'new_revision' or 'edit_revision' on the draft forms, otherwise NULL.
+ */
+function _draft_workflow_form_mode(array $form_state) {
+  return isset($form_state['draft_workflow_mode']) ? $form_state['draft_workflow_mode'] : NULL;
 }
 
 /**
@@ -794,36 +851,57 @@ function draft_workflow_revert_keep_status_submit($form, &$form_state) {
 function draft_workflow_form_node_type_form_alter(&$form, &$form_state) {
   $node_type = $form['#node_type'];
   $type = $node_type->type;
-  $form['revision']['draft_workflow_enabled'] = [
-    '#type' => 'checkbox',
-    '#title' => t('Enable draft workflow'),
-    '#description' => t('Enable draft workflow features for this content type, including the ability to create, edit, and manage draft revisions separately from the published version.'),
-    '#default_value' => _draft_workflow_type_enabled($type),
-    '#weight' => -1,
-  ];
+
+  // Order: core's revision settings, then the settings that depend on them.
+  // Each setting is only shown when the settings it depends on are checked.
+  // Hiding a setting does not change it, and turning revisions or the draft
+  // workflow off never deletes revisions or drafts.
+  $form['revision']['revision']['#weight'] = 0;
+  $revisions_on = [':input[name="revision_enabled"]' => ['checked' => TRUE]];
+  $draft_workflow_on = $revisions_on + [':input[name="draft_workflow_enabled"]' => ['checked' => TRUE]];
+  $notify_on = $draft_workflow_on + [':input[name="draft_workflow_notify"]' => ['checked' => TRUE]];
+
+  // Revision information is only on the content form when revisions are
+  // enabled. This setting works with or without the draft workflow.
   $form['revision']['draft_workflow_prominent_revisions'] = [
     '#type' => 'checkbox',
     '#title' => t('Display revision information prominently'),
     '#description' => t('Show revision information above the sidebar tabs, making it always visible when editing content of this type.'),
     '#default_value' => config_get('node.type.' . $type, 'settings.draft_workflow_prominent_revisions'),
+    '#weight' => 1,
+    '#states' => ['visible' => $revisions_on],
   ];
 
+  // Drafts are revisions, so the draft workflow needs revisions enabled.
+  $form['revision']['draft_workflow_enabled'] = [
+    '#type' => 'checkbox',
+    '#title' => t('Enable draft workflow'),
+    '#description' => t('Enable draft workflow features for this content type, including the ability to create, edit, and manage draft revisions separately from the published version.'),
+    '#default_value' => _draft_workflow_type_enabled($type),
+    '#weight' => 2,
+    // Shown only with revisions, unless the draft workflow is already on for a
+    // type without revisions (kept on by draft_workflow_update_1102()), so it
+    // can still be turned off here.
+    '#states' => (_draft_workflow_type_enabled($type) && empty($node_type->settings['revision_enabled'])) ? [] : ['visible' => $revisions_on],
+  ];
+
+  // Drafts can only be marked ready for review when the draft workflow is
+  // enabled for the type.
   $role_options = _draft_workflow_reviewer_role_options();
   $form['revision']['draft_workflow_notify'] = [
     '#type' => 'checkbox',
     '#title' => t('Email reviewers when a draft is ready for review'),
     '#description' => t('When someone marks a draft of this content type as ready for review, send an email to the people in the reviewer roles below.'),
     '#default_value' => (bool) config_get('node.type.' . $type, 'settings.draft_workflow_notify'),
+    '#weight' => 3,
+    '#states' => ['visible' => $draft_workflow_on],
   ];
   if ($warning = _draft_workflow_review_rules_warning()) {
     $form['revision']['draft_workflow_rules_warning'] = [
       '#type' => 'container',
       'message' => ['#markup' => $warning],
-      '#states' => [
-        'visible' => [
-          ':input[name="draft_workflow_notify"]' => ['checked' => TRUE],
-        ],
-      ],
+      '#weight' => 4,
+      '#states' => ['visible' => $notify_on],
     ];
   }
   $form['revision']['draft_workflow_reviewer_roles'] = [
@@ -834,11 +912,8 @@ function draft_workflow_form_node_type_form_alter(&$form, &$form_state) {
     '#description' => $role_options
       ? t('Only roles with the "Activate draft revisions" or "Administer content" permission are listed. To open the draft from the email, reviewers also need the "View content revisions" permission.')
       : t('No roles can review drafts yet. Give a role the "Activate draft revisions" permission first.'),
-    '#states' => [
-      'visible' => [
-        ':input[name="draft_workflow_notify"]' => ['checked' => TRUE],
-      ],
-    ],
+    '#weight' => 5,
+    '#states' => ['visible' => $notify_on],
   ];
 
   $form['#submit'][] = 'draft_workflow_node_type_form_submit';
@@ -919,6 +994,14 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
   if (substr_compare($form_id, $node_form_string, -strlen($node_form_string)) === 0) {
     $node = $form['#node'];
 
+    // If configured for this content type, pull revision information out of
+    // the vertical tabs so it renders as a visible fieldset above them. This
+    // works whether or not the draft workflow is enabled for the type.
+    if (isset($form['revision_information']) && config_get('node.type.' . $node->type, 'settings.draft_workflow_prominent_revisions')) {
+      unset($form['revision_information']['#group']);
+      $form['revision_information']['#weight'] = 98;
+    }
+
     if (!_draft_workflow_type_enabled($node->type)) {
       return;
     }
@@ -932,20 +1015,13 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       $form['actions']['submit']['#submit'][] = 'draft_workflow_node_form_draft_saved_submit';
     }
 
-    // If configured for this content type, pull revision information out of
-    // the vertical tabs so it renders as a visible fieldset above them.
-    if (config_get('node.type.' . $node->type, 'settings.draft_workflow_prominent_revisions')) {
-      unset($form['revision_information']['#group']);
-      $form['revision_information']['#weight'] = 98;
-    }
-
-    $args = arg();
+    $mode = _draft_workflow_form_mode($form_state);
 
     // On the regular edit form for existing content (always the current
     // revision), warn if newer drafts exist. This is a form element rather
     // than backdrop_set_message() so it is not queued again when the form is
     // rebuilt on submit or by AJAX and shown on the next page.
-    if (!empty($node->nid) && empty($args[4])) {
+    if (!empty($node->nid) && !$mode) {
       $draft_vid = _draft_workflow_latest_forward_revision($node);
       if ($draft_vid) {
         $message = t('A newer draft of this @type exists. If you save a new revision here, the changes in that draft could be overlooked. <a href="@url">Edit the latest draft</a> instead.', array(
@@ -961,9 +1037,20 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       }
     }
 
-    if (!empty($args[4]) && in_array($args[4], ['new_revision', 'edit_revision'])) {
+    if ($mode) {
       // Hide publishing options for non-current revisions.
       $form['options']['#access'] = FALSE;
+
+      // Core's preview page saves through the regular node form, without
+      // this draft form's settings, so preview is not offered here.
+      $form['actions']['preview']['#access'] = FALSE;
+
+      // Core shows the revision information only to people with "Administer
+      // content" when the type does not create new revisions by default. The
+      // draft settings below are in it, so always show it here.
+      if (isset($form['revision_information'])) {
+        $form['revision_information']['#access'] = TRUE;
+      }
 
       // Hide the URL settings too: the alias belongs to the node, and is only
       // changed when a revision is made current (see
@@ -983,7 +1070,7 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       // only this revision, when it is a saved draft (not the current
       // revision, and not a copy that has not been saved yet).
       unset($form['actions']['delete']);
-      if ($args[4] == 'edit_revision' && $node->vid != $current_node->vid && _node_revision_access($node, 'delete')) {
+      if ($mode == 'edit_revision' && $node->vid != $current_node->vid && _node_revision_access($node, 'delete')) {
         $form['actions']['delete'] = array(
           '#type' => 'link',
           '#title' => t('Delete this draft'),
@@ -1014,7 +1101,7 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
         '#type' => 'checkbox',
         '#title' => t('Ready for review'),
         '#description' => t('Mark this draft as ready to be reviewed.'),
-        '#default_value' => ($args[4] == 'edit_revision') ? (int) _draft_workflow_is_ready_for_review($node->vid) : 0,
+        '#default_value' => ($mode == 'edit_revision') ? (int) _draft_workflow_is_ready_for_review($node->vid) : 0,
         '#states' => [
           'invisible' => [
             ':input[name="make_current"]' => ['checked' => TRUE],
@@ -1022,7 +1109,7 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
         ],
       ];
 
-      if ($args[4] == 'new_revision') {
+      if ($mode == 'new_revision') {
         $form['revision_information']['revision']['#type'] = 'hidden';
         $form['revision_information']['revision']['#value'] = 1;
       }
@@ -1059,6 +1146,10 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       // changes as a new draft instead of a new current revision, without
       // going to the Revisions tab first. See draft_workflow_node_submit().
       if (!empty($node->nid) && isset($form['revision_information']) && draft_workflow_revision_edit_access($node)) {
+        // As on the draft forms, show the revision information even when core
+        // would hide it (see above). Core's "Create new revision" checkbox
+        // stays hidden from people without "Administer content".
+        $form['revision_information']['#access'] = TRUE;
         $form['revision_information']['save_as_draft'] = [
           '#type' => 'checkbox',
           '#title' => t('Save as a draft'),
@@ -1084,20 +1175,6 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       }
     }
   }
-}
-
-/**
- * Submit handler for the new revision form.
- */
-function draft_workflow_new_revision_submit($form, &$form_state) {
-  $form_state['values']['revision'] = 1;
-}
-
-/**
- * Submit handler for the edit revision form.
- */
-function draft_workflow_edit_revision_submit($form, &$form_state) {
-  $form_state['values']['revision'] = 0;
 }
 
 /**
@@ -1162,32 +1239,57 @@ function draft_workflow_node_presave(Node $node) {
   if (!empty($node->nid) && !$node->isActiveRevision()) {
     unset($node->path);
   }
+
+  // A revision that is not made current must never be written over the
+  // current revision. This can happen when a draft form's values arrive
+  // without the draft form, for example through Save on core's preview page,
+  // which uses the content type's "Create new revision" default. Save it as a
+  // new revision instead.
+  if (!empty($node->nid) && !$node->isActiveRevision() && empty($node->revision)
+    && isset($node->original) && $node->vid == $node->original->vid
+    && _draft_workflow_type_enabled($node->type)) {
+    $node->revision = TRUE;
+    $node->revision_timestamp = REQUEST_TIME;
+    $node->revision_uid = $GLOBALS['user']->uid;
+  }
 }
 
 /**
  * Implements hook_node_submit().
  */
 function draft_workflow_node_submit(Node $node, $form, &$form_state) {
-  $args = arg();
-  if (!empty($args[4])) {
-    if ($args[4] == 'new_revision') {
+  $mode = _draft_workflow_form_mode($form_state);
+  if ($mode) {
+    // A copy is always saved as a new revision, and an edited draft always
+    // updates its own revision, whatever the submitted form values say.
+    if ($mode == 'new_revision') {
+      $node->revision = TRUE;
       $node->is_active_revision = !empty($form_state['values']['make_current']);
     }
-    elseif ($args[4] == 'edit_revision' && !empty($form_state['values']['make_current'])) {
-      $node->is_active_revision = TRUE;
+    else {
+      $node->revision = FALSE;
+      if (!empty($form_state['values']['make_current'])) {
+        $node->is_active_revision = TRUE;
+      }
     }
 
     // The publishing options are hidden on these forms, so the submitted
     // status is the edited revision's stored status, which can be out of date
     // (for example if the node was published in code). Published status
     // belongs to the node, so take it from the node table instead.
-    if (in_array($args[4], ['new_revision', 'edit_revision'])) {
-      $node->status = _draft_workflow_node_status($node->nid);
+    $node->status = _draft_workflow_node_status($node->nid);
 
-      // Saved to {draft_workflow_review} in draft_workflow_node_update(), once
-      // the revision ID is known.
-      $node->draft_workflow_ready_for_review = !empty($form_state['values']['ready_for_review']);
-    }
+    // Saved to {draft_workflow_review} in draft_workflow_node_update(), once
+    // the revision ID is known.
+    $node->draft_workflow_ready_for_review = !empty($form_state['values']['ready_for_review']);
+  }
+  elseif (empty($node->nid) && _draft_workflow_type_enabled($node->type) && !user_access('administer nodes') && !user_access('publish draft workflow content')) {
+    // New content from someone who may not publish: the publishing options
+    // are hidden from them (see draft_workflow_form_alter()), but the hidden
+    // status is the content type's default, which can be "Published". Save it
+    // unpublished, for a publisher to publish.
+    $node->status = NODE_NOT_PUBLISHED;
+    $node->scheduled = 0;
   }
   elseif (!empty($node->nid) && !empty($form_state['values']['save_as_draft'])) {
     // "Save as a draft" on the regular edit form: always save a new revision,

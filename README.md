@@ -16,6 +16,24 @@ site visitors. When this revision is ready, you can make it or any other revisio
 
 ![image](https://github.com/user-attachments/assets/a832d7fd-0ac2-49b5-aaef-20bf52547524)
 
+Getting started
+---------------
+
+The draft workflow is **off for every content type** until you turn it on. After
+installing the module, turn it on for the content types that need it, either:
+
+- on the settings page, **Admin > Configuration > Content authoring > Draft
+  Workflow** (`admin/config/content/draft-workflow`), or
+- on each content type: **Admin > Structure > Content Types**, **Edit**, the
+  **Revision settings** tab, then check **Enable draft workflow**.
+
+Then give your editors and publishers the module's permissions (see Permissions
+below). Content types without the draft workflow keep core's normal revision
+behaviour.
+
+Sites that used an earlier version of the module keep the draft workflow on for
+their existing content types when they run `update.php`.
+
 Using this module
 -----------------
 
@@ -114,10 +132,18 @@ The module defines four permissions that allow you to separate editorial roles:
 | **Publish and unpublish content** | Publish and unpublish nodes; also required to activate revisions on already-published nodes, since doing so changes what is publicly visible. |
 | **View pending draft revisions** | Access the Pending Review view and dashboard block. |
 
+Core's _Administer content_ permission allows all of these actions, whatever these
+permissions are set to. The settings page names the roles that have it. Give it only
+to roles that should be able to publish.
+
 A typical two-role setup might look like:
 
 - **Editor**: Grant _Create draft revisions_ and _View pending draft revisions_.
 - **Publisher**: Grant all four permissions.
+
+New content created by people without _Publish and unpublish content_ is always saved
+unpublished, even when the content type is published by default. A publisher can then
+publish it from the Revisions tab.
 
 > **Important:** Saving the regular edit form makes your changes the current, live
 > version, so people without _Publish and unpublish content_ cannot open the Edit tab
@@ -140,10 +166,14 @@ When enabled, the revision information fieldset will appear above the sidebar ta
 on all editing forms for that content type, making it immediately visible without
 requiring an extra click.
 
+This setting also works for content types that don't use the draft workflow. It is
+shown when **Enable option to create revisions** is checked.
+
 ### Email reviewers
 
 The module can email reviewers when a draft is marked ready for review. This is set
-for each content type:
+for each content type that uses the draft workflow (the setting is shown when
+**Enable draft workflow** is checked):
 
 1. Go to **Admin > Structure > Content Types** and click **Edit** for the content type.
 2. Open the **Revision settings** tab.
@@ -194,6 +224,7 @@ Installation
 
 - Install this module using the official Backdrop CMS instructions at
   https://docs.backdropcms.org/documentation/extend-with-modules.
+- Turn on the draft workflow for your content types (see Getting started above).
 
 
 Issues
