@@ -971,10 +971,33 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       // this hook runs, so hide them in a #process callback instead.
       $form['#process'][] = '_draft_workflow_hide_path_settings';
 
+      // Hide the authoring information as well. The author and the "Authored
+      // on" date are stored on the node, not the revision, and core only saves
+      // them with the current revision, so changes made here would be lost.
+      $form['author']['#access'] = FALSE;
+
+      $current_node = node_load($node->nid);
+
+      // The node form's Delete button deletes the whole node, which is not
+      // what anyone expects on a draft. Replace it with a link that deletes
+      // only this revision, when it is a saved draft (not the current
+      // revision, and not a copy that has not been saved yet).
+      unset($form['actions']['delete']);
+      if ($args[4] == 'edit_revision' && $node->vid != $current_node->vid && _node_revision_access($node, 'delete')) {
+        $form['actions']['delete'] = array(
+          '#type' => 'link',
+          '#title' => t('Delete this draft'),
+          '#href' => 'node/' . $node->nid . '/revisions/' . $node->vid . '/delete',
+          '#options' => array(
+            'attributes' => array('class' => array('button', 'button-secondary', 'form-delete')),
+          ),
+          '#weight' => 15,
+        );
+      }
+
       // Add "Make current revision" checkbox to revision information.
       // Gate behind activate permission; also require publish permission if
       // the node is currently published (activating changes public content).
-      $current_node = node_load($node->nid);
       $can_activate = user_access('administer nodes') ||
         (user_access('activate draft revisions') &&
           ($current_node->status != NODE_PUBLISHED || user_access('publish draft workflow content')));

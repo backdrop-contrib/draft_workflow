@@ -2,8 +2,9 @@
  * @file
  * Hides node-level settings while "Save as a draft" is checked.
  *
- * Publishing options and URL settings belong to the node, not to a draft, so
- * they are hidden while the edit form will save a draft. The server side
+ * Publishing options, URL settings and authoring information belong to the
+ * node, not to a draft, so they are hidden while the edit form will save a
+ * draft. The server side
  * (draft_workflow_node_submit()) does not depend on this script.
  */
 (function ($) {
@@ -21,7 +22,7 @@
           // Hiding a tab moves focus to the first visible tab, so remember the
           // tab that holds the checkbox and return to it afterwards.
           var ownTab = $checkbox.closest('.vertical-tabs-pane').data('verticalTab');
-          $form.find('#edit-options, #edit-path').each(function () {
+          $form.find('#edit-options, #edit-path, #edit-author').each(function () {
             var $fieldset = $(this);
             var tab = $fieldset.data('verticalTab');
             if (tab) {
