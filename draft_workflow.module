@@ -367,8 +367,14 @@ function theme_draft_workflow_settings_form($variables) {
       '!url' => url('admin/config/people/permissions'),
     )) . '</p>';
     // "Administer content" allows all of these actions, whatever the table
-    // shows, so warn about the roles that have it.
-    $admin_roles = user_roles(FALSE, 'administer nodes');
+    // shows, so warn about roles that have it but not all of these
+    // permissions.
+    $admin_roles = array();
+    foreach (user_roles(FALSE, 'administer nodes', TRUE) as $role_name => $role) {
+      if (array_diff(array_keys(draft_workflow_permission()), $role->permissions)) {
+        $admin_roles[$role_name] = $role->label;
+      }
+    }
     if ($admin_roles) {
       $warning = format_plural(count($admin_roles),
         'The %roles role has the <em>Administer content</em> permission, so it can do all of these actions, including publishing and unpublishing, even where the table shows them unchecked.',
