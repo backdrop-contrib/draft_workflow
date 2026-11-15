@@ -80,9 +80,30 @@ function draft_workflow_update_1100() {
  */
 function draft_workflow_update_1101() {
   foreach (array_keys(node_type_get_types()) as $type) {
-    if (!_draft_workflow_type_enabled($type)) {
+    // Before draft_workflow_update_1102(), content types without the setting
+    // used the draft workflow, so check the setting itself here.
+    $enabled = config_get('node.type.' . $type, 'settings.draft_workflow_enabled');
+    if ($enabled !== NULL && !$enabled) {
       continue;
     }
     db_query('UPDATE {node_revision} SET status = (SELECT n.status FROM {node} n WHERE n.nid = {node_revision}.nid) WHERE nid IN (SELECT nid FROM {node} WHERE type = :type)', array(':type' => $type));
+  }
+}
+
+/**
+ * Keep the draft workflow enabled on existing content types.
+ *
+ * Content types without a saved "Enable draft workflow" setting used to have
+ * the draft workflow enabled. It is now off unless it is turned on, so save
+ * the setting on existing content types to keep them as they are.
+ */
+function draft_workflow_update_1102() {
+  foreach (array_keys(node_type_get_types()) as $type) {
+    $config = config('node.type.' . $type);
+    if ($config->isNew() || $config->get('settings.draft_workflow_enabled') !== NULL) {
+      continue;
+    }
+    $config->set('settings.draft_workflow_enabled', TRUE);
+    $config->save();
   }
 }

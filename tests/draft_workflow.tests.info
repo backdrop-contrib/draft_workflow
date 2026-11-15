@@ -21,3 +21,9 @@ name = Ready for review
 description = Test the ready for review flag and reviewer emails.
 group = Draft Workflow
 file = draft_workflow.test
+
+[DraftWorkflowDefaultsTestCase]
+name = Default settings
+description = Test which content types use the draft workflow by default.
+group = Draft Workflow
+file = draft_workflow.test

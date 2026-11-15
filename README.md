@@ -16,6 +16,24 @@ site visitors. When this revision is ready, you can make it or any other revisio
 
 ![image](https://github.com/user-attachments/assets/a832d7fd-0ac2-49b5-aaef-20bf52547524)
 
+Getting started
+---------------
+
+The draft workflow is **off for every content type** until you turn it on. After
+installing the module, turn it on for the content types that need it, either:
+
+- on the settings page, **Admin > Configuration > Content authoring > Draft
+  Workflow** (`admin/config/content/draft-workflow`), or
+- on each content type: **Admin > Structure > Content Types**, **Edit**, the
+  **Revision settings** tab, then check **Enable draft workflow**.
+
+Then give your editors and publishers the module's permissions (see Permissions
+below). Content types without the draft workflow keep core's normal revision
+behaviour.
+
+Sites that used an earlier version of the module keep the draft workflow on for
+their existing content types when they run `update.php`.
+
 Using this module
 -----------------
 
@@ -194,6 +212,7 @@ Installation
 
 - Install this module using the official Backdrop CMS instructions at
   https://docs.backdropcms.org/documentation/extend-with-modules.
+- Turn on the draft workflow for your content types (see Getting started above).
 
 
 Issues

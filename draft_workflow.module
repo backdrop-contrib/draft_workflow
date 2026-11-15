@@ -207,12 +207,18 @@ function draft_workflow_publish_access(Node $node) {
 /**
  * Returns whether the draft workflow is enabled for a given content type.
  *
- * Defaults to TRUE if the setting has not been configured, preserving
- * backward compatibility for existing installations.
+ * The draft workflow is off unless it has been turned on for the content type.
+ * Existing sites keep their earlier behaviour (on for every content type that
+ * had no saved setting): see draft_workflow_update_1102().
+ *
+ * @param string $type
+ *   The content type's machine name.
+ *
+ * @return bool
+ *   TRUE if the draft workflow is enabled.
  */
 function _draft_workflow_type_enabled($type) {
-  $value = config_get('node.type.' . $type, 'settings.draft_workflow_enabled');
-  return $value === NULL ? TRUE : (bool) $value;
+  return (bool) config_get('node.type.' . $type, 'settings.draft_workflow_enabled');
 }
 
 /**

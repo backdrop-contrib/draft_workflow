@@ -24,6 +24,9 @@ abstract class DraftWorkflowTestBase extends BackdropWebTestCase {
     $modules[] = 'draft_workflow';
     parent::setUp($modules);
 
+    // The draft workflow is off until it is turned on for a content type.
+    config_set('node.type.page', 'settings.draft_workflow_enabled', TRUE);
+
     $this->admin = $this->backdropCreateUser(array(
       'access content',
       'administer nodes',
@@ -380,6 +383,61 @@ class DraftWorkflowReviewTestCase extends DraftWorkflowTestBase {
     // Making the draft current clears the flag.
     $this->backdropPost('node/' . $node->nid . '/revisions/' . $draft_vid . '/activate', array(), t('Save'));
     $this->assertFalse(_draft_workflow_is_ready_for_review($draft_vid), 'Making the draft current clears the ready for review flag.');
+  }
+
+}
+
+/**
+ * Tests which content types use the draft workflow by default.
+ */
+class DraftWorkflowDefaultsTestCase extends DraftWorkflowTestBase {
+
+  /**
+   * Creates a content type with revisions turned on or off.
+   *
+   * @param string $type
+   *   The machine name.
+   * @param bool $revisions
+   *   Whether revisions are enabled.
+   */
+  protected function createType($type, $revisions) {
+    $this->backdropCreateContentType(array('type' => $type, 'name' => $type));
+    config_set('node.type.' . $type, 'settings.revision_enabled', $revisions);
+    config_clear('node.type.' . $type, 'settings.draft_workflow_enabled');
+    node_type_cache_reset();
+  }
+
+  /**
+   * Without a saved setting, the draft workflow is off.
+   */
+  public function testDefaultOff() {
+    $this->createType('with_revisions', TRUE);
+    $this->assertFalse(_draft_workflow_type_enabled('with_revisions'), 'Not enabled on a content type without the setting.');
+    config_set('node.type.with_revisions', 'settings.draft_workflow_enabled', TRUE);
+    $this->assertTrue(_draft_workflow_type_enabled('with_revisions'), 'Enabled once turned on.');
+
+    // A new content type created in the UI starts with it off.
+    $this->backdropLogin($this->backdropCreateUser(array('administer content types')));
+    $this->backdropGet('admin/structure/types/add');
+    $this->assertNoFieldChecked('edit-draft-workflow-enabled', 'The setting is off on a new content type.');
+  }
+
+  /**
+   * The update keeps the draft workflow on for existing content types.
+   */
+  public function testUpdateKeepsExistingTypes() {
+    $this->createType('with_revisions', TRUE);
+    $this->createType('without_revisions', FALSE);
+    $this->createType('turned_off', TRUE);
+    config_set('node.type.turned_off', 'settings.draft_workflow_enabled', FALSE);
+
+    module_load_install('draft_workflow');
+    draft_workflow_update_1102();
+
+    $this->assertIdentical(config_get('node.type.with_revisions', 'settings.draft_workflow_enabled'), TRUE, 'The setting is saved on a content type with revisions.');
+    $this->assertIdentical(config_get('node.type.without_revisions', 'settings.draft_workflow_enabled'), TRUE, 'The setting is saved on a content type without revisions.');
+    $this->assertTrue(_draft_workflow_type_enabled('without_revisions'), 'A content type without revisions keeps the draft workflow.');
+    $this->assertIdentical(config_get('node.type.turned_off', 'settings.draft_workflow_enabled'), FALSE, 'A content type where it was turned off stays off.');
   }
 
 }
