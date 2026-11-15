@@ -27,3 +27,9 @@ name = Default settings
 description = Test which content types use the draft workflow by default.
 group = Draft Workflow
 file = draft_workflow.test
+
+[DraftWorkflowRebuildTestCase]
+name = Draft forms after a rebuild, and new content
+description = Test the draft forms after an AJAX rebuild, and the published status of new content.
+group = Draft Workflow
+file = draft_workflow.test
