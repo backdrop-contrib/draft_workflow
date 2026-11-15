@@ -511,6 +511,22 @@ class DraftWorkflowRebuildTestCase extends DraftWorkflowTestBase {
   }
 
   /**
+   * The draft settings are shown when new revisions are not the default.
+   */
+  public function testDraftSettingsShown() {
+    list($nid, $live_vid, $draft_vid) = $this->createPageWithDraft();
+    $this->backdropLogin($this->createEditor());
+    $this->backdropGet("node/$nid/revisions/$draft_vid/edit_revision");
+    $this->assertFieldByName('ready_for_review', NULL, 'Ready for review is shown on the draft edit form.');
+    $this->backdropGet("node/$nid/revisions/$live_vid/new_revision");
+    $this->assertFieldByName('ready_for_review', NULL, 'Ready for review is shown on the copy form.');
+    $this->assertNoFieldByXPath('//input[@type="checkbox" and @name="revision"]', NULL, 'The Create new revision checkbox is not shown.');
+
+    $this->backdropPost("node/$nid/revisions/$draft_vid/edit_revision", array('ready_for_review' => TRUE), t('Save'));
+    $this->assertTrue((bool) db_query('SELECT 1 FROM {draft_workflow_review} WHERE vid = :vid', array(':vid' => $draft_vid))->fetchField(), 'The draft was marked ready for review.');
+  }
+
+  /**
    * Drafts are never written over the current revision.
    */
   public function testDraftNeverOverwritesCurrent() {

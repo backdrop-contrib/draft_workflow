@@ -1045,6 +1045,13 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       // this draft form's settings, so preview is not offered here.
       $form['actions']['preview']['#access'] = FALSE;
 
+      // Core shows the revision information only to people with "Administer
+      // content" when the type does not create new revisions by default. The
+      // draft settings below are in it, so always show it here.
+      if (isset($form['revision_information'])) {
+        $form['revision_information']['#access'] = TRUE;
+      }
+
       // Hide the URL settings too: the alias belongs to the node, and is only
       // changed when a revision is made current (see
       // draft_workflow_node_presave()). Path module adds these settings after
@@ -1139,6 +1146,10 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       // changes as a new draft instead of a new current revision, without
       // going to the Revisions tab first. See draft_workflow_node_submit().
       if (!empty($node->nid) && isset($form['revision_information']) && draft_workflow_revision_edit_access($node)) {
+        // As on the draft forms, show the revision information even when core
+        // would hide it (see above). Core's "Create new revision" checkbox
+        // stays hidden from people without "Administer content".
+        $form['revision_information']['#access'] = TRUE;
         $form['revision_information']['save_as_draft'] = [
           '#type' => 'checkbox',
           '#title' => t('Save as a draft'),
