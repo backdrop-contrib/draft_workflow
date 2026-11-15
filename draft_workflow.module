@@ -879,7 +879,10 @@ function draft_workflow_form_node_type_form_alter(&$form, &$form_state) {
     '#description' => t('Enable draft workflow features for this content type, including the ability to create, edit, and manage draft revisions separately from the published version.'),
     '#default_value' => _draft_workflow_type_enabled($type),
     '#weight' => 2,
-    '#states' => ['visible' => $revisions_on],
+    // Shown only with revisions, unless the draft workflow is already on for a
+    // type without revisions (kept on by draft_workflow_update_1102()), so it
+    // can still be turned off here.
+    '#states' => (_draft_workflow_type_enabled($type) && empty($node_type->settings['revision_enabled'])) ? [] : ['visible' => $revisions_on],
   ];
 
   // Drafts can only be marked ready for review when the draft workflow is
@@ -1038,6 +1041,10 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
       // Hide publishing options for non-current revisions.
       $form['options']['#access'] = FALSE;
 
+      // Core's preview page saves through the regular node form, without
+      // this draft form's settings, so preview is not offered here.
+      $form['actions']['preview']['#access'] = FALSE;
+
       // Hide the URL settings too: the alias belongs to the node, and is only
       // changed when a revision is made current (see
       // draft_workflow_node_presave()). Path module adds these settings after
@@ -1160,20 +1167,6 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
 }
 
 /**
- * Submit handler for the new revision form.
- */
-function draft_workflow_new_revision_submit($form, &$form_state) {
-  $form_state['values']['revision'] = 1;
-}
-
-/**
- * Submit handler for the edit revision form.
- */
-function draft_workflow_edit_revision_submit($form, &$form_state) {
-  $form_state['values']['revision'] = 0;
-}
-
-/**
  * Submit handler for node forms, run after node_form_submit().
  *
  * When the saved revision is not the current one, replaces the "has been
@@ -1234,6 +1227,19 @@ function draft_workflow_node_presave(Node $node) {
   // draft is made current.
   if (!empty($node->nid) && !$node->isActiveRevision()) {
     unset($node->path);
+  }
+
+  // A revision that is not made current must never be written over the
+  // current revision. This can happen when a draft form's values arrive
+  // without the draft form, for example through Save on core's preview page,
+  // which uses the content type's "Create new revision" default. Save it as a
+  // new revision instead.
+  if (!empty($node->nid) && !$node->isActiveRevision() && empty($node->revision)
+    && isset($node->original) && $node->vid == $node->original->vid
+    && _draft_workflow_type_enabled($node->type)) {
+    $node->revision = TRUE;
+    $node->revision_timestamp = REQUEST_TIME;
+    $node->revision_uid = $GLOBALS['user']->uid;
   }
 }
 

@@ -511,6 +511,33 @@ class DraftWorkflowRebuildTestCase extends DraftWorkflowTestBase {
   }
 
   /**
+   * Drafts are never written over the current revision.
+   */
+  public function testDraftNeverOverwritesCurrent() {
+    list($nid, $live_vid, $draft_vid) = $this->createPageWithDraft();
+    config_set('node.type.page', 'settings.node_preview', BACKDROP_OPTIONAL);
+
+    // The draft forms do not offer core's preview, which saves without them.
+    $this->backdropLogin($this->createEditor());
+    $this->backdropGet("node/$nid/revisions/$live_vid/new_revision");
+    $this->assertNoFieldById('edit-preview', NULL, 'No Preview button on the copy form.');
+    $this->backdropGet("node/$nid/revisions/$draft_vid/edit_revision");
+    $this->assertNoFieldById('edit-preview', NULL, 'No Preview button on the draft edit form.');
+
+    // A save that is not made current, at the current revision, without a new
+    // revision (as Save on the preview page does) creates a new revision.
+    $node = node_load($nid, $live_vid, TRUE);
+    $node->title = 'Not live';
+    $node->revision = FALSE;
+    $node->is_active_revision = FALSE;
+    $node->save();
+    $this->assertEqual($this->currentVid($nid), $live_vid, 'The current revision did not change.');
+    $live_title = db_query('SELECT title FROM {node_revision} WHERE vid = :vid', array(':vid' => $live_vid))->fetchField();
+    $this->assertEqual($live_title, 'Live title', 'The current revision was not overwritten.');
+    $this->assertTrue($node->vid > $draft_vid, 'The changes were saved as a new revision.');
+  }
+
+  /**
    * People without the publish permission cannot publish new content.
    */
   public function testNewContentNotPublished() {
