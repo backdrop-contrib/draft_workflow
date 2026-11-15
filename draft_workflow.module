@@ -90,7 +90,7 @@ function draft_workflow_menu() {
     'load arguments' => [3],
     'page callback' => 'draft_workflow_edit_revision',
     'page arguments' => array(1),
-    'access callback' => 'draft_workflow_revision_edit_access',
+    'access callback' => 'draft_workflow_edit_revision_access',
     'access arguments' => array(1),
     'weight' => 0,
   );
@@ -105,10 +105,30 @@ function draft_workflow_revision_edit_access(Node $node) {
 }
 
 /**
+ * Access callback for editing a revision in place (edit_revision).
+ *
+ * Editing the current revision in place changes the live content, so it needs
+ * the same access as the regular edit form, which requires the publish
+ * permission for published content.
+ */
+function draft_workflow_edit_revision_access(Node $node) {
+  if (!draft_workflow_revision_edit_access($node)) {
+    return FALSE;
+  }
+  if ($node->isActiveRevision()) {
+    return draft_workflow_node_edit_access($node);
+  }
+  return TRUE;
+}
+
+/**
  * Access callback for activating a draft revision.
  *
  * If the node is currently published, activating a revision changes what is
  * publicly visible, so the publish permission is also required.
+ *
+ * @param Node $node
+ *   The revision to activate.
  */
 function draft_workflow_activate_access(Node $node) {
   if (!_draft_workflow_type_enabled($node->type)) {
@@ -120,11 +140,61 @@ function draft_workflow_activate_access(Node $node) {
   if (!node_access('update', $node) || !user_access('activate draft revisions')) {
     return FALSE;
   }
-  // Activating a revision on a published node is a publish action.
-  if ($node->status == NODE_PUBLISHED && !user_access('publish draft workflow content')) {
+  // Activating a revision on a published node is a publish action. Check the
+  // node's status, not the revision's stored status, which can be out of date.
+  if (_draft_workflow_node_status($node->nid) == NODE_PUBLISHED && !user_access('publish draft workflow content')) {
     return FALSE;
   }
   return TRUE;
+}
+
+/**
+ * Access callback for core's revision revert page.
+ *
+ * Reverting makes an older revision current, so on content types that use the
+ * draft workflow it needs the same access as making a revision current.
+ *
+ * @param Node $node
+ *   The revision to revert to.
+ */
+function draft_workflow_revert_access(Node $node) {
+  if (!_node_revision_access($node, 'update')) {
+    return FALSE;
+  }
+  if (!_draft_workflow_type_enabled($node->type)) {
+    return TRUE;
+  }
+  return draft_workflow_activate_access($node);
+}
+
+/**
+ * Returns a node's published status from the {node} table.
+ *
+ * Published status belongs to the node. A loaded revision's status comes from
+ * {node_revision} and can be out of date, so security and save decisions use
+ * this instead.
+ *
+ * @param int $nid
+ *   The node ID.
+ *
+ * @return int
+ *   NODE_PUBLISHED or NODE_NOT_PUBLISHED.
+ */
+function _draft_workflow_node_status($nid) {
+  return (int) db_query('SELECT status FROM {node} WHERE nid = :nid', array(':nid' => $nid))->fetchField();
+}
+
+/**
+ * Sets the status of all of a node's revisions to the node's status.
+ *
+ * @param int $nid
+ *   The node ID.
+ */
+function _draft_workflow_sync_revision_status($nid) {
+  db_update('node_revision')
+    ->fields(array('status' => _draft_workflow_node_status($nid)))
+    ->condition('nid', $nid)
+    ->execute();
 }
 
 /**
@@ -376,6 +446,14 @@ function draft_workflow_menu_alter(&$items) {
     $items['node/%node/edit']['access callback'] = 'draft_workflow_node_edit_access';
     $items['node/%node/edit']['access arguments'] = array(1);
   }
+
+  // Core's revert page makes an older revision current, so it needs the same
+  // access as "Make current revision" (the link is removed from the Revisions
+  // tab, but the page itself is still reachable).
+  if (isset($items['node/%node/revisions/%/revert'])) {
+    $items['node/%node/revisions/%/revert']['access callback'] = 'draft_workflow_revert_access';
+    $items['node/%node/revisions/%/revert']['access arguments'] = array(1);
+  }
 }
 
 /**
@@ -589,6 +667,9 @@ function draft_workflow_activate_confirm($form, $form_state, $node_revision) {
 function draft_workflow_activate_confirm_submit($form, &$form_state) {
   $node_revision = $form['#node_revision'];
 
+  // Keep the node's published status: the revision's stored status can be out
+  // of date, and making it current must not publish or unpublish the node.
+  $node_revision->status = _draft_workflow_node_status($node_revision->nid);
   $node_revision->setIsActiveRevision();
   $node_revision->save();
 
@@ -615,13 +696,9 @@ function draft_workflow_publish_confirm($form, $form_state, $node) {
 function draft_workflow_publish_confirm_submit($form, &$form_state) {
   $node = $form['#node'];
 
+  // draft_workflow_node_update() copies the new status to all revisions.
   $node->status = NODE_PUBLISHED;
   $node->save();
-
-  db_update('node_revision')
-    ->fields(['status' => $node->status])
-    ->condition('nid', $node->nid)
-    ->execute();
 
   backdrop_set_message(t('@type %title has been published.', array(
     '@type' => node_type_get_name($node),
@@ -646,13 +723,9 @@ function draft_workflow_unpublish_confirm($form, $form_state, $node) {
 function draft_workflow_unpublish_confirm_submit($form, &$form_state) {
   $node = $form['#node'];
 
+  // draft_workflow_node_update() copies the new status to all revisions.
   $node->status = NODE_NOT_PUBLISHED;
   $node->save();
-
-  db_update('node_revision')
-    ->fields(['status' => $node->status])
-    ->condition('nid', $node->nid)
-    ->execute();
 
   backdrop_set_message(t('@type %title has been unpublished.', array(
     '@type' => node_type_get_name($node),
@@ -692,6 +765,27 @@ function draft_workflow_edit_revision(Node $node) {
 
   $form = backdrop_get_form($node->type . '_node_form', $node);
   return $form;
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for node_revision_revert_confirm().
+ */
+function draft_workflow_form_node_revision_revert_confirm_alter(&$form, &$form_state) {
+  if (isset($form['#node_revision']) && _draft_workflow_type_enabled($form['#node_revision']->type)) {
+    // Run before core's submit handler, which saves the revision.
+    array_unshift($form['#submit'], 'draft_workflow_revert_keep_status_submit');
+  }
+}
+
+/**
+ * Submit handler for core's revert form: keeps the node's published status.
+ *
+ * Core saves the reverted revision with its own stored status, which can be
+ * out of date. Reverting must not publish or unpublish the node.
+ */
+function draft_workflow_revert_keep_status_submit($form, &$form_state) {
+  $node_revision = $form['#node_revision'];
+  $node_revision->status = _draft_workflow_node_status($node_revision->nid);
 }
 
 /**
@@ -1065,7 +1159,7 @@ function draft_workflow_node_submit(Node $node, $form, &$form_state) {
     // (for example if the node was published in code). Published status
     // belongs to the node, so take it from the node table instead.
     if (in_array($args[4], ['new_revision', 'edit_revision'])) {
-      $node->status = (int) db_query('SELECT status FROM {node} WHERE nid = :nid', [':nid' => $node->nid])->fetchField();
+      $node->status = _draft_workflow_node_status($node->nid);
 
       // Saved to {draft_workflow_review} in draft_workflow_node_update(), once
       // the revision ID is known.
@@ -1078,24 +1172,29 @@ function draft_workflow_node_submit(Node $node, $form, &$form_state) {
     // node, so keep the node's status, as on the draft forms.
     $node->revision = TRUE;
     $node->is_active_revision = FALSE;
-    $node->status = (int) db_query('SELECT status FROM {node} WHERE nid = :nid', [':nid' => $node->nid])->fetchField();
+    $node->status = _draft_workflow_node_status($node->nid);
     $node->draft_workflow_ready_for_review = !empty($form_state['values']['ready_for_review']);
   }
 
-  // Update all the revisions to match the currently saved node.
-  db_update('node_revision')
-    ->fields(['status' => $node->status])
-    ->condition('nid', $node->nid)
-    ->execute();
-
+  // Nothing is written to the database here: this hook also runs when the
+  // node form is previewed, not only when it is saved. Revision statuses are
+  // synced in draft_workflow_node_update(), after a save.
 }
 
 /**
  * Implements hook_node_update().
  *
- * Records or clears the "ready for review" flag for the saved revision.
+ * Keeps every revision's status in line with the node's, and records or clears
+ * the "ready for review" flag for the saved revision.
  */
 function draft_workflow_node_update(Node $node) {
+  // Published status belongs to the node. Copy it to all revisions after
+  // every save (including saves from code, bulk actions and other modules),
+  // so no revision keeps an out-of-date status.
+  if (_draft_workflow_type_enabled($node->type)) {
+    _draft_workflow_sync_revision_status($node->nid);
+  }
+
   // A revision that is now current is no longer waiting for review.
   if ($node->isActiveRevision()) {
     db_delete('draft_workflow_review')
@@ -1298,7 +1397,7 @@ function draft_workflow_node_view(Node $node, $view_mode, $langcode) {
   if ($view_mode == 'full' && _draft_workflow_type_enabled($node->type) && !$node->isActiveRevision()) {
     $message = t('You are viewing a version of this content that is not the current (public) revision.');
     $links = array();
-    if (node_access('update', $node)) {
+    if (draft_workflow_edit_revision_access($node)) {
       $links[] = l(t('Edit this revision'), 'node/' . $node->nid . '/revisions/' . $node->vid . '/edit_revision');
     }
     $links[] = l(t('View all revisions'), 'node/' . $node->nid . '/revisions');

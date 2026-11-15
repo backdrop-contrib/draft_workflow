@@ -70,3 +70,19 @@ function draft_workflow_update_1100() {
     db_create_table('draft_workflow_review', _draft_workflow_review_table_schema());
   }
 }
+
+/**
+ * Make every revision's published status match its content's status.
+ *
+ * Revisions saved outside the draft workflow forms (bulk actions, scheduled
+ * publishing, code) could keep an out-of-date status, which made "Make current
+ * revision" and "Revert" publish or unpublish content unexpectedly.
+ */
+function draft_workflow_update_1101() {
+  foreach (array_keys(node_type_get_types()) as $type) {
+    if (!_draft_workflow_type_enabled($type)) {
+      continue;
+    }
+    db_query('UPDATE {node_revision} SET status = (SELECT n.status FROM {node} n WHERE n.nid = {node_revision}.nid) WHERE nid IN (SELECT nid FROM {node} WHERE type = :type)', array(':type' => $type));
+  }
+}
