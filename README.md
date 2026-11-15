@@ -52,7 +52,12 @@ There are two ways to start a draft:
   on any revision. This works for everyone who can create drafts.
 
 After saving a draft, you land on the draft itself, with a message saying it is not
-yet the current revision.
+yet the current revision, and whether it is marked ready for review.
+
+The draft forms (**Copy** and **Edit this revision**) have no **Preview** button. Saving
+a draft does not change the live content, and shows you the saved draft, so use
+**Save** to preview. If it needs more work, use **Edit this revision**. (Core's preview
+page saves through the regular edit form, which would lose the draft's settings.)
 
 ### The Revisions tab
 
