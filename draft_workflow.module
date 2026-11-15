@@ -381,7 +381,7 @@ function theme_draft_workflow_settings_form($variables) {
   foreach (node_type_get_types() as $type_name => $type) {
     // Reviewer emails are set on the content type form; summarize them here.
     $notify_roles = array_intersect_key($role_options, array_flip((array) config_get('node.type.' . $type_name, 'settings.draft_workflow_reviewer_roles')));
-    $notify_on = config_get('node.type.' . $type_name, 'settings.draft_workflow_notify') && $notify_roles;
+    $notify_on = _draft_workflow_type_enabled($type_name) && config_get('node.type.' . $type_name, 'settings.draft_workflow_notify') && $notify_roles;
     $any_notify = $any_notify || $notify_on;
     $notify_summary = $notify_on ? implode(', ', $notify_roles) : t('Off');
     $notify_summary .= ' (' . l(t('change'), 'admin/structure/types/manage/' . str_replace('_', '-', $type_name)) . ')';
@@ -794,36 +794,54 @@ function draft_workflow_revert_keep_status_submit($form, &$form_state) {
 function draft_workflow_form_node_type_form_alter(&$form, &$form_state) {
   $node_type = $form['#node_type'];
   $type = $node_type->type;
-  $form['revision']['draft_workflow_enabled'] = [
-    '#type' => 'checkbox',
-    '#title' => t('Enable draft workflow'),
-    '#description' => t('Enable draft workflow features for this content type, including the ability to create, edit, and manage draft revisions separately from the published version.'),
-    '#default_value' => _draft_workflow_type_enabled($type),
-    '#weight' => -1,
-  ];
+
+  // Order: core's revision settings, then the settings that depend on them.
+  // Each setting is only shown when the settings it depends on are checked.
+  // Hiding a setting does not change it, and turning revisions or the draft
+  // workflow off never deletes revisions or drafts.
+  $form['revision']['revision']['#weight'] = 0;
+  $revisions_on = [':input[name="revision_enabled"]' => ['checked' => TRUE]];
+  $draft_workflow_on = $revisions_on + [':input[name="draft_workflow_enabled"]' => ['checked' => TRUE]];
+  $notify_on = $draft_workflow_on + [':input[name="draft_workflow_notify"]' => ['checked' => TRUE]];
+
+  // Revision information is only on the content form when revisions are
+  // enabled. This setting works with or without the draft workflow.
   $form['revision']['draft_workflow_prominent_revisions'] = [
     '#type' => 'checkbox',
     '#title' => t('Display revision information prominently'),
     '#description' => t('Show revision information above the sidebar tabs, making it always visible when editing content of this type.'),
     '#default_value' => config_get('node.type.' . $type, 'settings.draft_workflow_prominent_revisions'),
+    '#weight' => 1,
+    '#states' => ['visible' => $revisions_on],
   ];
 
+  // Drafts are revisions, so the draft workflow needs revisions enabled.
+  $form['revision']['draft_workflow_enabled'] = [
+    '#type' => 'checkbox',
+    '#title' => t('Enable draft workflow'),
+    '#description' => t('Enable draft workflow features for this content type, including the ability to create, edit, and manage draft revisions separately from the published version.'),
+    '#default_value' => _draft_workflow_type_enabled($type),
+    '#weight' => 2,
+    '#states' => ['visible' => $revisions_on],
+  ];
+
+  // Drafts can only be marked ready for review when the draft workflow is
+  // enabled for the type.
   $role_options = _draft_workflow_reviewer_role_options();
   $form['revision']['draft_workflow_notify'] = [
     '#type' => 'checkbox',
     '#title' => t('Email reviewers when a draft is ready for review'),
     '#description' => t('When someone marks a draft of this content type as ready for review, send an email to the people in the reviewer roles below.'),
     '#default_value' => (bool) config_get('node.type.' . $type, 'settings.draft_workflow_notify'),
+    '#weight' => 3,
+    '#states' => ['visible' => $draft_workflow_on],
   ];
   if ($warning = _draft_workflow_review_rules_warning()) {
     $form['revision']['draft_workflow_rules_warning'] = [
       '#type' => 'container',
       'message' => ['#markup' => $warning],
-      '#states' => [
-        'visible' => [
-          ':input[name="draft_workflow_notify"]' => ['checked' => TRUE],
-        ],
-      ],
+      '#weight' => 4,
+      '#states' => ['visible' => $notify_on],
     ];
   }
   $form['revision']['draft_workflow_reviewer_roles'] = [
@@ -834,11 +852,8 @@ function draft_workflow_form_node_type_form_alter(&$form, &$form_state) {
     '#description' => $role_options
       ? t('Only roles with the "Activate draft revisions" or "Administer content" permission are listed. To open the draft from the email, reviewers also need the "View content revisions" permission.')
       : t('No roles can review drafts yet. Give a role the "Activate draft revisions" permission first.'),
-    '#states' => [
-      'visible' => [
-        ':input[name="draft_workflow_notify"]' => ['checked' => TRUE],
-      ],
-    ],
+    '#weight' => 5,
+    '#states' => ['visible' => $notify_on],
   ];
 
   $form['#submit'][] = 'draft_workflow_node_type_form_submit';
@@ -919,6 +934,14 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
   if (substr_compare($form_id, $node_form_string, -strlen($node_form_string)) === 0) {
     $node = $form['#node'];
 
+    // If configured for this content type, pull revision information out of
+    // the vertical tabs so it renders as a visible fieldset above them. This
+    // works whether or not the draft workflow is enabled for the type.
+    if (isset($form['revision_information']) && config_get('node.type.' . $node->type, 'settings.draft_workflow_prominent_revisions')) {
+      unset($form['revision_information']['#group']);
+      $form['revision_information']['#weight'] = 98;
+    }
+
     if (!_draft_workflow_type_enabled($node->type)) {
       return;
     }
@@ -930,13 +953,6 @@ function draft_workflow_form_alter(&$form, &$form_state, $form_id) {
     // than the current one.
     if (isset($form['actions']['submit']['#submit'])) {
       $form['actions']['submit']['#submit'][] = 'draft_workflow_node_form_draft_saved_submit';
-    }
-
-    // If configured for this content type, pull revision information out of
-    // the vertical tabs so it renders as a visible fieldset above them.
-    if (config_get('node.type.' . $node->type, 'settings.draft_workflow_prominent_revisions')) {
-      unset($form['revision_information']['#group']);
-      $form['revision_information']['#weight'] = 98;
     }
 
     $args = arg();
